@@ -30,35 +30,15 @@ options.rows = 64
 options.cols = 64
 options.brightness = 100  # This seems to be 0 to 100
 
-matrix = RGBMatrix(options = options)
 
-# RGB example w/graphics prims.
-# Note, only "RGB" mode is supported currently.
-image = Image.new("RGB", (64, 6*64))  # Can be larger than matrix if wanted!!
-draw = ImageDraw.Draw(image)  # Declare Draw instance before prims
-pixels = image.load()
+# draw = ImageDraw.Draw(image)  # Declare Draw instance before prims
 # Draw some shapes into image (no immediate effect on matrix)...
-# for i in range(image.size[0]):
-#     for j in range(image.size[1]):
-#         if j % 2 == 0:
-#             continue
-#         pixels[i, j] = (i,j, 100)
-# image.show()
-# matrix.Clear()
-# matrix.SetImage(image)
-draw.rectangle((0, 0, 32, 32), fill=(255, 255, 0), outline=(0, 0, 255))
-draw.line((0, 0, 31, 31), fill=(255, 0, 0))
+# draw.rectangle((0, 0, 32, 32), fill=(255, 255, 0), outline=(0, 0, 255))
+# draw.line((0, 0, 31, 31), fill=(255, 0, 0))
 # draw.bitmap()
 # draw.line((0, 31, 31, 0), fill=(0, 255, 0))
 # draw.rectangle((0, 0, 0, 0), fill=(255, 255, 0), outline=(0, 0, 255))
 
-
-# # Then scroll image across matrix...
-# for _ in range(10):
-#     for n in range(0, 64*6):  # Start off top-left, move off bottom-right
-#         matrix.Clear()
-#         matrix.SetImage(image, n, 0)
-#         time.sleep(0.05)
 
 import sys,tty,termios
 class _Getch:
@@ -100,17 +80,115 @@ def get(x, y):
         #     # sys.exit()
 
 
-x = 0
-y = 0
-matrix.SetImage(image, y, x)
-print('b')
-try:
-    while True:
-            x, y = get(x, y)
-            matrix.Clear()
-            matrix.SetImage(image, y, x)
-            time.sleep(0.05)
-except KeyboardInterrupt:
-    pass
+class Snake:
+    def __init__(self):
+        self.x = []
+        self.y = []
+        self.step = 1
+        self.length = 3
+        self.direction = 0
 
-matrix.Clear()
+        for i in range(0, self.length):
+            self.x.append(0)
+            self.y.append(0)
+
+        self.updateCount = 0
+        self.updateCountMax = 2
+
+    def update(self):
+        self.updateCount += 1
+        if self.updateCount > self.updateCountMax:
+
+            # update previous positions
+            for i in range(self.length - 1, 0, -1):
+                print("self.x[" + str(i) + "] = self.x[" + str(i - 1) + "]")
+                self.x[i] = self.x[i - 1]
+                self.y[i] = self.y[i - 1]
+
+            # update position of head of snake
+            if self.direction == 0:
+                self.x[0] = self.x[0] + self.step
+            if self.direction == 1:
+                self.x[0] = self.x[0] - self.step
+            if self.direction == 2:
+                self.y[0] = self.y[0] - self.step
+            if self.direction == 3:
+                self.y[0] = self.y[0] + self.step
+
+            self.updateCount = 0
+
+
+    def move_right(self):
+        self.direction = 0
+
+    def move_left(self):
+        self.direction = 1
+
+    def move_up(self):
+        self.direction = 2
+
+    def move_down(self):
+        self.direction = 3
+
+    def draw(self):
+        pass
+
+
+
+class LEDCubeMap:
+    def __init__(self,rows, cols, pixel_map):
+        self.rows = rows
+        self.cols = cols
+        self.rows = 64
+        self.cols = 64
+        self.pixels = pixel_map
+
+    def blank(self):
+        for i in range(self.rows):
+            for j in range(self.cols):
+                self.pixels[i, j] = (0, 0, 0)
+
+    def position(self, x, y):
+        print(x, y)
+        if x > self.rows:
+            x = x % self.rows
+        elif x < 0:
+            x = x % self.rows
+            # x += self.rows
+        if y > self.cols:
+            y = y % self.cols
+        elif y < 0:
+            y = y % self.cols
+            # y += self.cols
+        self.blank()
+        self.pixels[x, y] = (255, 255, 255)
+
+
+
+def main():
+    matrix = RGBMatrix(options=options)
+
+    image = Image.new("RGB", (6 * 64, 64))  # Can be larger than matrix if wanted!!
+
+    pixels = image.load()
+    # for i in range(image.size[0]):
+    #     for j in range(image.size[1]):
+    #         if j % 2 == 0:
+    #             continue
+    #         pixels[i, j] = (i * 2, j * 2, 255)
+
+    cube_map = LEDCubeMap(rows=image.size[0], cols=image.size[1], pixel_map=pixels)
+    x = 0
+    y = 0
+    image.show()
+    while True:
+        x, y = get(x, y)
+        cube_map.position(x, y)
+        matrix.Clear()
+        matrix.SetImage(image)
+
+
+
+
+if __name__ == "__main__":
+    main()
