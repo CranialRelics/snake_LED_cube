@@ -1,25 +1,12 @@
-#!/usr/bin/env python
 
-# (This is an example similar to an example from the Adafruit fork
-#  to show the similarities. Most important difference currently is, that
-#  this library wants RGB mode.)
-#
-# A more complex RGBMatrix example works with the Python Imaging Library,
-# demonstrating a few graphics primitives and image loading.
-# Note that PIL graphics do not have an immediate effect on the display --
-# image is drawn into a separate buffer, which is then copied to the matrix
-# using the SetImage() function (see examples below).
-# Requires rgbmatrix.so present in the same directory.
-
-# PIL Image module (create or load images) is explained here:
-# http://effbot.org/imagingbook/image.htm
-# PIL ImageDraw module (draw shapes to images) explained here:
-# http://effbot.org/imagingbook/imagedraw.htm
+from collections import namedtuple
 
 from PIL import Image
 from PIL import ImageDraw
 import time
 from rgbmatrix import RGBMatrix, RGBMatrixOptions
+
+from control_pad import Controller
 
 # Configuration for the matrix
 options = RGBMatrixOptions()
@@ -52,7 +39,7 @@ class _Getch:
                 termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
             return ch
 
-def get(x, y):
+def get():
         inkey = _Getch()
         while(1):
                 k=inkey()
@@ -60,62 +47,191 @@ def get(x, y):
         if 'q' in k:
             sys.exit()
         elif k=='\x1b[A' or 'w' in k:
-            y += 1
             # return 'up'
-            return x, y
+            return 2
         elif k=='\x1b[B' or 's' in k:
-            y -= 1
             # return  "down"
-            return x, y
+            return 3
         elif k=='\x1b[C' or 'd' in k:
-            x += 1
             # return  "right"
-            return x, y
+            return 0
         elif k=='\x1b[D' or 'a' in k:
-            x -= 1
             # return  "left"
-            return x, y
-        # else:
-        #     print("not an arrow key!")
-        #     # sys.exit()
+            return 1
+        else:
+            return None
 
 
 class Snake:
-    def __init__(self):
+    def __init__(self, cube_map):
+        self.cube_map = cube_map
+        self.controller = Controller()
         self.x = []
         self.y = []
         self.step = 1
         self.length = 3
-        self.direction = 0
+        self.control = 0
+        self.direction = "xu"
 
-        for i in range(0, self.length):
-            self.x.append(0)
-            self.y.append(0)
+        # Starting points
+        self.x = [32, 31, 31]
+        self.y = [32, 32, 32]
+        self.x_pos = 32
+        self.y_pos = 32
 
+        self.face = "top"
+        self.directions = ['u', 'd', 'n', 'e', 's', 'w']
         self.updateCount = 0
-        self.updateCountMax = 2
+        self.updateCountMax = 0
+        # Top NE(0,0) NW(0,63) SW(63, 63) SE(63, 0)
+        # North TE(192,63) TW(192,0) BE(255,63) BW(255,0)
+        # East ST(128,63) NT(128,0) BS(191,63) BN(191,0)
+        # South TW(64,63) TE(64,0) BE(127,0) BW(127,63)
+        # West TN(256,63) TS(256,0) BN(319,63) BS(319,0)
+        # Bottom NW(320,63) NE(383,63) SW(320,0) SE(383,0)
+        #              "top": {},
+        #             "bottom": {},
+        #             "north": {},
+        #             "east": {},
+        #             "south": {},
+        #             "west": {}
+        # Pixel = namedtuple("Pixel", "x y")
+        # Corner = namedtuple("Corner", "edges pixels")
+        # Face = namedtuple("Face", "corners edges")
+        # top_face = Face([Corner("ne", Pixel(0,0)), Corner("nw", Pixel(0,63)), Corner('sw', Pixel(63, 63)), Corner('se', Pixel(63, 0))]), ["n", "e", "s", "w"])
+        # face_params = {
+        #
+        #     "t": ,
+        #     "b": {"nw": (320,63), "ne": (383,63), 'sw': (320,0), 'se': (383,0), "edges": ["n", "e", "s", "w"]},
+        #     "n": {"te": (192, 63), "tw": (192, 0), 'be': (255, 63), 'bw': (255, 0), "edges": ["t", "e", "b", "w"]},
+        #     "e": {"st": (128,63), "nt": (128,0), 'bs': (191,63), 'bn': (191,0), "edges": ["s", "t", "n", "b"]},
+        #     "s": {"tw": (64,63), "te": (64,0), 'be': (127,0), 'bw': (127,63), "edges": ["t", "e", "b", "w"]},
+        #     "w": {"tn": (256,63), "ts": (256,0), 'bn': (319,63), 'bs': (319,0), "edges": ["t", "n", "b", "s"]}
+        # }
+        face_params = {
+            "t": {"corners": {"ne": (0, 0), "nw": (0, 63), 'sw': (63, 63), 'se': (63, 0)}, "edges": ["n", "e", "s", "w"]},
+            "b": {"corners": {"nw": (320, 63), "ne": (383, 63), 'sw': (320, 0), 'se': (383, 0)}, "edges": ["n", "e", "s", "w"]},
+            "n": {"corners": {"te": (192, 63), "tw": (192, 0), 'be': (255, 63), 'bw': (255, 0)}, "edges": ["t", "e", "b", "w"]},
+            "e": {"corners": {"st": (128, 63), "nt": (128, 0), 'bs': (191, 63), 'bn': (191, 0)}, "edges": ["s", "t", "n", "b"]},
+            "s": {"corners": {"tw": (64, 63), "te": (64, 0), 'be': (127, 0), 'bw': (127, 63)}, "edges": ["t", "e", "b", "w"]},
+            "w": {"corners": {"tn": (256, 63), "ts": (256, 0), 'bn': (319, 63), 'bs': (319, 0)}, "edges": ["t", "n", "b", "s"]}
+            }
+
+        self.change_direction_map = {
+            'tnr':'e',
+            'tnl': 'w',
+            'tsr': 'w',
+            'tsl': 'e',
+            'ter': 's',
+            'tel': 'n',
+            'twr': 'n',
+            'twl': 's',
+            'nel': 'b',
+            'ner': 't',
+            'nwr': 'b',
+            'nwl': 't',
+            'ntr': 'n',
+            'nt': 'n',
+            'nww': 'n',
+            'nww': 'n',
+            'nww': 'n',
+            'nww': 'n',
+        }
+        self.transition_map = {}
+        # keys are [single char for face][single char for direction][x coord][y coord]:(x,y)
+        # Top transitions
+        for face_name in face_params.keys():
+            face = face_params[face_name]
+            for edge in face["edges"]:
+                # Grab the pixels for two corners that form the boundary of the edge
+                corner_pixels = []
+                for corner, pixel in face["corners"].items():
+                    if edge in corner:
+                        corner_pixels.append(pixel)
+                if len(corner_pixels) != 2:
+                    raise IOError
+                # Determine which of x or y is constant for this edge
+                x_same = True
+                if corner_pixels[0][0] == corner_pixels[1][0]:
+                    # x-coords the same
+                    if corner_pixels[0][1] > corner_pixels[1][1]:
+                        high = corner_pixels[0][1]
+                        low = corner_pixels[1][1]
+                    else:
+                        high = corner_pixels[1][1]
+                        low = corner_pixels[0][1]
+                    edge_constant = corner_pixels[0][0]
+                else:
+                    # y-coords the same
+                    x_same = False
+                    if corner_pixels[0][0] > corner_pixels[1][0]:
+                        high = corner_pixels[0][0]
+                        low = corner_pixels[1][0]
+                    else:
+                        low = corner_pixels[0][0]
+                        high = corner_pixels[1][0]
+                    edge_range = [corner_pixels[0][0], corner_pixels[1][0]]
+                    edge_constant = corner_pixels[0][1]
+                for i in range(low, high):
+                    if x_same:
+                        self.transition_map[f"{face}{edge}{edge_constant}.{i}"] = (1, 1, 'ab')
+
+            for i in range(64):
+                self.transition_map[f"tn0.{i}"] = (192, 63 - i, 'nb')
+                self.transition_map[f"nt192.{63 - i}"] = (0, i, 'ts')
+
+                self.transition_map[f"tw{i}.63"] = (256, 63 - i, 'wb')
+                self.transition_map[f"wt256.{63 - i}"] = (i, 63, 'te')
+
+                self.transition_map[f"te{i}.0"] = (128, i, 'eb')
+                self.transition_map[f"et256.{63 - i}"] = (i, 0, 'tw')
+
+
+
 
     def update(self):
         self.updateCount += 1
         if self.updateCount > self.updateCountMax:
 
+            direction = self.controller.read()
+            if direction == "left":
+                self.direction = "xd"
+            elif direction == "right":
+                self.direction = "xu"
+            elif direction == "up":
+                self.direction = "yu"
+            elif direction == "down":
+                self.direction = "yd"
+
+
             # update previous positions
             for i in range(self.length - 1, 0, -1):
-                print("self.x[" + str(i) + "] = self.x[" + str(i - 1) + "]")
+                # print("self.x[" + str(i) + "] = self.x[" + str(i - 1) + "]")
+                self.cube_map.unset_map_point(self.x[-1], self.y[-1])
                 self.x[i] = self.x[i - 1]
                 self.y[i] = self.y[i - 1]
 
+
+
             # update position of head of snake
-            if self.direction == 0:
-                self.x[0] = self.x[0] + self.step
-            if self.direction == 1:
-                self.x[0] = self.x[0] - self.step
-            if self.direction == 2:
-                self.y[0] = self.y[0] - self.step
-            if self.direction == 3:
-                self.y[0] = self.y[0] + self.step
+            if self.direction == 'xu':
+                self.x_pos += self.step
+                self.x[0] = self.x_pos
+            if self.direction == 'xd':
+                self.x_pos  -= self.step
+                self.x[0] = self.x_pos
+            if self.direction == 'yd':
+                self.y_pos  -= self.step
+                self.y[0] = self.y_pos
+            if self.direction == 'yu':
+                self.y_pos += self.step
+                self.y[0] = self.y_pos + self.step
+
+            for i in range(self.length):
+                self.cube_map.set_map_point(self.x[i], self.y[i])
 
             self.updateCount = 0
+
 
 
     def move_right(self):
@@ -130,60 +246,73 @@ class Snake:
     def move_down(self):
         self.direction = 3
 
-    def draw(self):
-        pass
 
 
 
 class LEDCubeMap:
-    def __init__(self,rows, cols, pixel_map):
+    def __init__(self,rows, cols, pixel_input_map):
         self.rows = rows
         self.cols = cols
-        self.rows = 64
-        self.cols = 64
-        self.pixels = pixel_map
+        self.max_x = rows - 1
+        self.max_y = cols - 1
+        # self.rows = 64
+        # self.cols = 64
+        self.pixels = pixel_input_map
+        self.pixel_map = {}
 
     def blank(self):
         for i in range(self.rows):
             for j in range(self.cols):
                 self.pixels[i, j] = (0, 0, 0)
 
+    def generate_pixel_map(self):
+        # Top NE(0,0) NW(0,63) SW(63, 63) SE(63, 0)
+        # North TE(192,63) TW(192,0) BE(255,63) BW(255,0)
+        # East ST(128,63) NT(128,0) BS(191,63) BN(191,0)
+        # South TW(64,63) TE(64,0) BE(127,0) BW(127,63)
+        # West TN(256,63) TS(256,0) BN(319,63) BS(319,0)
+        # Bottom NW(320,63) NE(383,63) SW(320,0) SE(383,0)
+        pass
+        for x in range(63):
+            for y in range(63):
+                pass
+
+    def set_map_point(self, x, y, color=(255, 255, 255)):
+        self.pixels[x, y] = color
+
+    def unset_map_point(self, x, y):
+        self.pixels[x, y] = (0, 0, 0)
+
     def position(self, x, y):
-        print(x, y)
-        if x > self.rows:
+
+        if x > self.max_x:
             x = x % self.rows
         elif x < 0:
             x = x % self.rows
-            # x += self.rows
-        if y > self.cols:
+        if y > self.max_y:
             y = y % self.cols
         elif y < 0:
             y = y % self.cols
-            # y += self.cols
         self.blank()
         self.pixels[x, y] = (255, 255, 255)
+        print(x, y)
+        return x, y
 
 
 
 def main():
     matrix = RGBMatrix(options=options)
-
-    image = Image.new("RGB", (6 * 64, 64))  # Can be larger than matrix if wanted!!
-
+    image = Image.new("RGB", (6 * 64, 64))
     pixels = image.load()
-    # for i in range(image.size[0]):
-    #     for j in range(image.size[1]):
-    #         if j % 2 == 0:
-    #             continue
-    #         pixels[i, j] = (i * 2, j * 2, 255)
-
-    cube_map = LEDCubeMap(rows=image.size[0], cols=image.size[1], pixel_map=pixels)
+    cube_map = LEDCubeMap(rows=image.size[0], cols=image.size[1], pixel_input_map=pixels)
+    snake = Snake(cube_map)
     x = 0
     y = 0
     image.show()
     while True:
-        x, y = get(x, y)
-        cube_map.position(x, y)
+        # x, y = get(x, y)
+        # x, y = cube_map.position(x, y)
+        snake.update()
         matrix.Clear()
         matrix.SetImage(image)
 
