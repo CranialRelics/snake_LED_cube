@@ -71,7 +71,7 @@ class Snake:
         self.step = 1
         self.length = 3
         self.control = 0
-        self.direction = "xu"
+
 
         # Starting points
         self.x = [32, 31, 31]
@@ -79,7 +79,8 @@ class Snake:
         self.x_pos = 32
         self.y_pos = 32
 
-        self.face = "top"
+        self.face = "t"
+        self.direction = "e"
         self.directions = ['u', 'd', 'n', 'e', 's', 'w']
         self.updateCount = 0
         self.updateCountMax = 0
@@ -95,10 +96,10 @@ class Snake:
         #             "east": {},
         #             "south": {},
         #             "west": {}
-        # Pixel = namedtuple("Pixel", "x y")
-        # Corner = namedtuple("Corner", "edges pixels")
-        # Face = namedtuple("Face", "corners edges")
-        # top_face = Face([Corner("ne", Pixel(0,0)), Corner("nw", Pixel(0,63)), Corner('sw', Pixel(63, 63)), Corner('se', Pixel(63, 0))]), ["n", "e", "s", "w"])
+        Pixel = namedtuple("Pixel", "x y")
+        Corner = namedtuple("Corner", "edges pixels")
+        Face = namedtuple("Face", "corners edges")
+        #
         # face_params = {
         #
         #     "t": ,
@@ -109,14 +110,22 @@ class Snake:
         #     "w": {"tn": (256,63), "ts": (256,0), 'bn': (319,63), 'bs': (319,0), "edges": ["t", "n", "b", "s"]}
         # }
         face_params = {
-            "t": {"corners": {"ne": (0, 0), "nw": (0, 63), 'sw': (63, 63), 'se': (63, 0)}, "edges": ["n", "e", "s", "w"]},
-            "b": {"corners": {"nw": (320, 63), "ne": (383, 63), 'sw': (320, 0), 'se': (383, 0)}, "edges": ["n", "e", "s", "w"]},
-            "n": {"corners": {"te": (192, 63), "tw": (192, 0), 'be': (255, 63), 'bw': (255, 0)}, "edges": ["t", "e", "b", "w"]},
-            "e": {"corners": {"st": (128, 63), "nt": (128, 0), 'bs': (191, 63), 'bn': (191, 0)}, "edges": ["s", "t", "n", "b"]},
-            "s": {"corners": {"tw": (64, 63), "te": (64, 0), 'be': (127, 0), 'bw': (127, 63)}, "edges": ["t", "e", "b", "w"]},
-            "w": {"corners": {"tn": (256, 63), "ts": (256, 0), 'bn': (319, 63), 'bs': (319, 0)}, "edges": ["t", "n", "b", "s"]}
+            "t": Face([Corner("ne", Pixel(0, 0)), Corner("nw", Pixel(0, 63)), Corner("sw", Pixel(63, 63)), Corner("se", Pixel(63, 0))], ["n", "e", "s", "w"]),
+            "b": Face([Corner("nw", Pixel(320, 63)), Corner("ne", Pixel(383, 63)), Corner("sw", Pixel(320, 0)), Corner("se", Pixel(383, 0))], ["n", "e", "s", "w"]),
+            "n": Face([Corner("te", Pixel(192, 63)), Corner("tw", Pixel(192, 0)), Corner("be", Pixel(255, 63)), Corner("bw", Pixel(255, 0))], ["t", "e", "b", "w"]),
+            "e": Face([Corner("st", Pixel(128, 63)), Corner("nt", Pixel(128, 0)), Corner("bs", Pixel(191, 63)), Corner("bn", Pixel(191, 0))], ["s", "t", "n", "b"]),
+            "s": Face([Corner("tw", Pixel(64, 63)), Corner("te", Pixel(64, 0)), Corner("be", Pixel(127, 0)), Corner("bw", Pixel(127, 63))], ["t", "e", "b", "w"]),
+            "w": Face([Corner("tn", Pixel(256, 63)), Corner("ts", Pixel(256, 0)), Corner("bn", Pixel(319, 63)), Corner("bs", Pixel(319, 0))], ["t", "n", "b", "s"])
             }
 
+        def get_corners(all_corners, adjacent_face):
+            output_corners = []
+            for corner in all_corners:
+                if adjacent_face in corner.edges:
+                    output_corners.append(corner)
+            if len(output_corners) != 2:
+                raise IOError
+            return output_corners
         self.change_direction_map = {
             'tnr':'e',
             'tnl': 'w',
@@ -126,82 +135,220 @@ class Snake:
             'tel': 'n',
             'twr': 'n',
             'twl': 's',
-            'nel': 'b',
+
+            'bnr': 'w',
+            'bnl': 'e',
+            'bsr': 'e',
+            'bsl': 'w',
+            'ber': 'n',
+            'bel': 's',
+            'bwr': 's',
+            'bwl': 'n',
+
             'ner': 't',
+            'nel': 'b',
             'nwr': 'b',
             'nwl': 't',
-            'ntr': 'n',
-            'nt': 'n',
-            'nww': 'n',
-            'nww': 'n',
-            'nww': 'n',
-            'nww': 'n',
+            'ntr': 'w',
+            'ntl': 'e',
+            'nbr': 'e',
+            'nbl': 'w',
+
+            'ser': 'b',
+            'sel': 't',
+            'swr': 't',
+            'swl': 'b',
+            'str': 'e',
+            'stl': 'w',
+            'sbr': 'w',
+            'sbl': 'e',
+
+            'etr': 'n',
+            'etl': 's',
+            'ebr': 's',
+            'ebl': 'n',
+            'enr': 'b',
+            'enl': 't',
+            'esr': 't',
+            'esl': 'b',
+
+            'wtr': 's',
+            'wtl': 'n',
+            'wbr': 'n',
+            'wbl': 's',
+            'wnr': 't',
+            'wnl': 'b',
+            'wsr': 'b',
+            'wsl': 't',
+
         }
         self.transition_map = {}
         # keys are [single char for face][single char for direction][x coord][y coord]:(x,y)
         # Top transitions
+        '''
         for face_name in face_params.keys():
             face = face_params[face_name]
-            for edge in face["edges"]:
+            for edge in face.edges:
                 # Grab the pixels for two corners that form the boundary of the edge
-                corner_pixels = []
-                for corner, pixel in face["corners"].items():
-                    if edge in corner:
-                        corner_pixels.append(pixel)
-                if len(corner_pixels) != 2:
-                    raise IOError
-                # Determine which of x or y is constant for this edge
-                x_same = True
-                if corner_pixels[0][0] == corner_pixels[1][0]:
-                    # x-coords the same
-                    if corner_pixels[0][1] > corner_pixels[1][1]:
-                        high = corner_pixels[0][1]
-                        low = corner_pixels[1][1]
-                    else:
-                        high = corner_pixels[1][1]
-                        low = corner_pixels[0][1]
-                    edge_constant = corner_pixels[0][0]
+                old_face_corners = get_corners(face.corners, edge)
+                new_face_corners = get_corners(face_params[edge].corners, face_name)
+                beginning_orig_x = None
+                finished = False
+                for old_corner in old_face_corners:
+                    if finished:
+                        break
+                    for new_corner in new_face_corners:
+                        for edge in old_corner.edges:
+                            if edge in new_corner.edges:
+                                if beginning_orig_x is None:
+                                    beginning_orig_x = new_corner.pixels.x
+                                    beginning_new_x = old_corner.pixels.x
+                                    beginning_orig_y = new_corner.pixels.y
+                                    beginning_new_y = old_corner.pixels.y
+                                else:
+                                    ending_orig_x = new_corner.pixels.x
+                                    ending_new_x = old_corner.pixels.x
+                                    ending_orig_y = new_corner.pixels.y
+                                    ending_new_y = old_corner.pixels.y
+
+
+                if beginning_orig_x == ending_orig_x:
+                    for i in range(beginning_orig_y, ending_orig_y):
+                        self.transition_map[f"{face_name}{edge}{beginning_orig_x}.{i}"] = (1, 1, 'ab')
                 else:
-                    # y-coords the same
-                    x_same = False
-                    if corner_pixels[0][0] > corner_pixels[1][0]:
-                        high = corner_pixels[0][0]
-                        low = corner_pixels[1][0]
-                    else:
-                        low = corner_pixels[0][0]
-                        high = corner_pixels[1][0]
-                    edge_range = [corner_pixels[0][0], corner_pixels[1][0]]
-                    edge_constant = corner_pixels[0][1]
-                for i in range(low, high):
-                    if x_same:
-                        self.transition_map[f"{face}{edge}{edge_constant}.{i}"] = (1, 1, 'ab')
+                    for i in range(beginning_orig_x, ending_orig_x):
+                        self.transition_map[f"{face_name}{edge}{beginning_orig_x}.{i}"] = (1, 1, 'ab')
+                # self.transition_map[f"{face}{edge}{edge_constant}.{i}"] = (1, 1, 'ab')
+            '''
 
-            for i in range(64):
-                self.transition_map[f"tn0.{i}"] = (192, 63 - i, 'nb')
-                self.transition_map[f"nt192.{63 - i}"] = (0, i, 'ts')
+            # # Determine which of x or y is constant for this edge
+            # x_same = True
+            # if corner_pixels[0][0] == corner_pixels[1][0]:
+            #     # x-coords the same
+            #     if corner_pixels[0][1] > corner_pixels[1][1]:
+            #         high = corner_pixels[0][1]
+            #         low = corner_pixels[1][1]
+            #     else:
+            #         high = corner_pixels[1][1]
+            #         low = corner_pixels[0][1]
+            #     edge_constant = corner_pixels[0][0]
+            # else:
+            #     # y-coords the same
+            #     x_same = False
+            #     if corner_pixels[0][0] > corner_pixels[1][0]:
+            #         high = corner_pixels[0][0]
+            #         low = corner_pixels[1][0]
+            #     else:
+            #         low = corner_pixels[0][0]
+            #         high = corner_pixels[1][0]
 
-                self.transition_map[f"tw{i}.63"] = (256, 63 - i, 'wb')
-                self.transition_map[f"wt256.{63 - i}"] = (i, 63, 'te')
+        for i in range(64):
+            # Top North
+            self.transition_map[f"tn0.{i}"] = (192, 63 - i, 'nb')
+            self.transition_map[f"nt192.{63 - i}"] = (0, i, 'ts')
+            # Top West
+            self.transition_map[f"tw{i}.63"] = (256, 63 - i, 'wb')
+            self.transition_map[f"wt256.{63 - i}"] = (i, 63, 'te')
+            # Top East
+            self.transition_map[f"te{i}.0"] = (128, i, 'eb')
+            self.transition_map[f"et128.{i}"] = (i, 0, 'tw')
+            # Top South
+            self.transition_map[f"ts63.{i}"] = (64, i, 'nb')
+            self.transition_map[f"st64.{i}"] = (63, i, 'tn')
+            # North East
+            self.transition_map[f"ne{i+192}.63"] = (128 + i, 0, 'es')
+            self.transition_map[f"en{128 + i}.0"] = (i+192, 63, 'nw')
+            # North West
+            self.transition_map[f"nw{i+192}.0"] = (256 + i, 63, 'ws')
+            self.transition_map[f"wn{256 + i}.63"] = (i+192, 0, 'ne')
+            # South West
+            self.transition_map[f"sw{i+64}.63"] = (256 + i, 0, 'wn')
+            self.transition_map[f"ws{256 + i}.0"] = (i+64, 63, 'se')
+            # South East
+            self.transition_map[f"se{i+64}.0"] = (i+128, 63, 'en')
+            self.transition_map[f"es{i+128}.63"] = (i+64, 0, 'sw')
+            # Bottom North
+            self.transition_map[f"bn{i+320}.63"] = (255, i, 'nt')
+            self.transition_map[f"nb255.{i}"] = (i+320, 63, 'bs')
+            # Bottom East
+            self.transition_map[f"be383.{i}"] = (191, 63 - i, 'et')
+            self.transition_map[f"eb191.{63 - i}"] = (383, i, 'bw')
+            # Bottom West
+            self.transition_map[f"bw320.{i}"] = (319, i, 'wt')
+            self.transition_map[f"wb319.{i}"] = (320, i, 'be')
+            # Bottom South
+            self.transition_map[f"bs{320+i}.0"] = (127, i, 'st')
+            self.transition_map[f"sb127.{i}"] = (320+i, 0, 'bn')
 
-                self.transition_map[f"te{i}.0"] = (128, i, 'eb')
-                self.transition_map[f"et256.{63 - i}"] = (i, 0, 'tw')
-
-
+        self.coord_map = {
+                            "tn": "xd",
+                            "nt": "xd",
+                            "tw": "yu",
+                            "wt": "xd",
+                            "te": "yd",
+                            "et": "xd",
+                            "ts": "xu",
+                            "st": "xd",
+                            "ne": "yu",
+                            "en": "yd",
+                            "nw": "yd",
+                            "wn": "yu",
+                            "sw": "yu",
+                            "ws": "yd",
+                            "se": "yd",
+                            "es": "yu",
+                            "bn": "yu",
+                            "nb": "xu",
+                            "be": "xu",
+                            "eb": "xu",
+                            "bw": "xd",
+                            "wb": "xu",
+                            "bs": "yd",
+                            "sb": "xu"
+                          }
 
 
     def update(self):
         self.updateCount += 1
         if self.updateCount > self.updateCountMax:
 
-            direction = self.controller.read()
-            if direction == "left":
-                self.direction = "xd"
-            elif direction == "right":
-                self.direction = "xu"
-            elif direction == "up":
-                self.direction = "yu"
-            elif direction == "down":
-                self.direction = "yd"
+            pad_direction = self.controller.read()
+            if pad_direction == "left":
+                self.direction = self.change_direction_map[f"{self.face}{self.direction}l"]
+            elif pad_direction == "right":
+                self.direction = self.change_direction_map[f"{self.face}{self.direction}r"]
+
+
+
+            new_face = False
+            try:
+                position_key = f"{self.face}{self.direction}{self.x_pos}.{self.y_pos}"
+                new_x, new_y, face_change = self.transition_map[position_key]
+                self.x_pos = new_x
+                self.x[0] = new_x
+                self.y_pos = new_y
+                self.y[0] = new_y
+                self.face = face_change[0]
+                self.direction = face_change[1]
+                new_face = True
+            except KeyError:
+                pass
+            if not new_face:
+                direction = self.coord_map[self.face + self.direction]
+                if direction == "yu":
+                    self.y_pos += self.step
+                    self.y[0] = self.y_pos + self.step
+                elif direction == "yd":
+                    self.y_pos  -= self.step
+                    self.y[0] = self.y_pos
+                elif direction == "xu":
+                    self.x_pos += self.step
+                    self.x[0] = self.x_pos
+                elif direction == "xd":
+                    self.x_pos  -= self.step
+                    self.x[0] = self.x_pos
+                else:
+                    raise TypeError
 
 
             # update previous positions
@@ -214,18 +361,19 @@ class Snake:
 
 
             # update position of head of snake
-            if self.direction == 'xu':
-                self.x_pos += self.step
-                self.x[0] = self.x_pos
-            if self.direction == 'xd':
-                self.x_pos  -= self.step
-                self.x[0] = self.x_pos
-            if self.direction == 'yd':
-                self.y_pos  -= self.step
-                self.y[0] = self.y_pos
-            if self.direction == 'yu':
-                self.y_pos += self.step
-                self.y[0] = self.y_pos + self.step
+            # if self.direction == 'xu':
+            #     self.x_pos += self.step
+            #     self.x[0] = self.x_pos
+            # if self.direction == 'xd':
+            #     self.x_pos  -= self.step
+            #     self.x[0] = self.x_pos
+            # if self.direction == 'yd':
+            #     self.y_pos  -= self.step
+            #     self.y[0] = self.y_pos
+            # if self.direction == 'yu':
+            #     self.y_pos += self.step
+            #     self.y[0] = self.y_pos + self.step
+
 
             for i in range(self.length):
                 self.cube_map.set_map_point(self.x[i], self.y[i])
