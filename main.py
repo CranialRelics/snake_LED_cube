@@ -1,4 +1,5 @@
-
+import random
+import time
 from collections import namedtuple
 
 from PIL import Image
@@ -16,6 +17,8 @@ options.chain_length = 6
 options.rows = 64
 options.cols = 64
 options.brightness = 100  # This seems to be 0 to 100
+
+TIME_STEP_LENGTH = 0.2
 
 
 # draw = ImageDraw.Draw(image)  # Declare Draw instance before prims
@@ -71,8 +74,12 @@ class Snake:
         self.step = 1
         self.length = 3
         self.control = 0
+        self.score = 0
 
         self.found_food = False
+        self.food_x = None
+        self.food_y = None
+        self.new_food_pos()
 
 
         # Starting points
@@ -92,25 +99,11 @@ class Snake:
         # South TW(64,63) TE(64,0) BE(127,0) BW(127,63)
         # West TN(256,63) TS(256,0) BN(319,63) BS(319,0)
         # Bottom NW(320,63) NE(383,63) SW(320,0) SE(383,0)
-        #              "top": {},
-        #             "bottom": {},
-        #             "north": {},
-        #             "east": {},
-        #             "south": {},
-        #             "west": {}
+
         Pixel = namedtuple("Pixel", "x y")
         Corner = namedtuple("Corner", "edges pixels")
         Face = namedtuple("Face", "corners edges")
-        #
-        # face_params = {
-        #
-        #     "t": ,
-        #     "b": {"nw": (320,63), "ne": (383,63), 'sw': (320,0), 'se': (383,0), "edges": ["n", "e", "s", "w"]},
-        #     "n": {"te": (192, 63), "tw": (192, 0), 'be': (255, 63), 'bw': (255, 0), "edges": ["t", "e", "b", "w"]},
-        #     "e": {"st": (128,63), "nt": (128,0), 'bs': (191,63), 'bn': (191,0), "edges": ["s", "t", "n", "b"]},
-        #     "s": {"tw": (64,63), "te": (64,0), 'be': (127,0), 'bw': (127,63), "edges": ["t", "e", "b", "w"]},
-        #     "w": {"tn": (256,63), "ts": (256,0), 'bn': (319,63), 'bs': (319,0), "edges": ["t", "n", "b", "s"]}
-        # }
+
         face_params = {
             "t": Face([Corner("ne", Pixel(0, 0)), Corner("nw", Pixel(0, 63)), Corner("sw", Pixel(63, 63)), Corner("se", Pixel(63, 0))], ["n", "e", "s", "w"]),
             "b": Face([Corner("nw", Pixel(320, 63)), Corner("ne", Pixel(383, 63)), Corner("sw", Pixel(320, 0)), Corner("se", Pixel(383, 0))], ["n", "e", "s", "w"]),
@@ -187,62 +180,6 @@ class Snake:
         self.transition_map = {}
         # keys are [single char for face][single char for direction][x coord][y coord]:(x,y)
         # Top transitions
-        '''
-        for face_name in face_params.keys():
-            face = face_params[face_name]
-            for edge in face.edges:
-                # Grab the pixels for two corners that form the boundary of the edge
-                old_face_corners = get_corners(face.corners, edge)
-                new_face_corners = get_corners(face_params[edge].corners, face_name)
-                beginning_orig_x = None
-                finished = False
-                for old_corner in old_face_corners:
-                    if finished:
-                        break
-                    for new_corner in new_face_corners:
-                        for edge in old_corner.edges:
-                            if edge in new_corner.edges:
-                                if beginning_orig_x is None:
-                                    beginning_orig_x = new_corner.pixels.x
-                                    beginning_new_x = old_corner.pixels.x
-                                    beginning_orig_y = new_corner.pixels.y
-                                    beginning_new_y = old_corner.pixels.y
-                                else:
-                                    ending_orig_x = new_corner.pixels.x
-                                    ending_new_x = old_corner.pixels.x
-                                    ending_orig_y = new_corner.pixels.y
-                                    ending_new_y = old_corner.pixels.y
-
-
-                if beginning_orig_x == ending_orig_x:
-                    for i in range(beginning_orig_y, ending_orig_y):
-                        self.transition_map[f"{face_name}{edge}{beginning_orig_x}.{i}"] = (1, 1, 'ab')
-                else:
-                    for i in range(beginning_orig_x, ending_orig_x):
-                        self.transition_map[f"{face_name}{edge}{beginning_orig_x}.{i}"] = (1, 1, 'ab')
-                # self.transition_map[f"{face}{edge}{edge_constant}.{i}"] = (1, 1, 'ab')
-            '''
-
-            # # Determine which of x or y is constant for this edge
-            # x_same = True
-            # if corner_pixels[0][0] == corner_pixels[1][0]:
-            #     # x-coords the same
-            #     if corner_pixels[0][1] > corner_pixels[1][1]:
-            #         high = corner_pixels[0][1]
-            #         low = corner_pixels[1][1]
-            #     else:
-            #         high = corner_pixels[1][1]
-            #         low = corner_pixels[0][1]
-            #     edge_constant = corner_pixels[0][0]
-            # else:
-            #     # y-coords the same
-            #     x_same = False
-            #     if corner_pixels[0][0] > corner_pixels[1][0]:
-            #         high = corner_pixels[0][0]
-            #         low = corner_pixels[1][0]
-            #     else:
-            #         low = corner_pixels[0][0]
-            #         high = corner_pixels[1][0]
 
         for i in range(64):
             # Top North
@@ -309,10 +246,18 @@ class Snake:
                             "sb": "xu"
                           }
 
+    def new_food_pos(self):
+        while True:
+            self.food_x = random.randint(0,319) # (0, 319) to exclude bottom, (0, 383) to include bottom
+            self.food_y = random.randint(0,63)
+            if self.food_x not in self.x:
+                if self.food_y not in self.y:
+                    break
+        self.cube_map.set_map_point(self.food_x, self.food_y, color=(0,255,0))
+
     def update(self):
         self.updateCount += 1
         if self.updateCount > self.updateCountMax:
-
             pad_direction = self.controller.read()
             if pad_direction == "left":
                 self.direction = self.change_direction_map[f"{self.face}{self.direction}l"]
@@ -320,8 +265,9 @@ class Snake:
             elif pad_direction == "right":
                 self.direction = self.change_direction_map[f"{self.face}{self.direction}r"]
                 # print(f"On face {self.face} going {self.direction}")
-            elif pad_direction == "up":
-                pass
+            # Uncomment this to make the game stop every cycle without input
+            # elif pad_direction == "up":
+            #     pass
             # else:
             #     return
 
@@ -360,19 +306,23 @@ class Snake:
                 else:
                     raise TypeError
 
-            print(f"On face {self.face} going {self.direction}")
-            print(f"X: {self.x_pos} Y: {self.y_pos}")
-            # update previous positions
-            if not self.found_food:
+            # print(f"On face {self.face} going {self.direction}")
+            # print(f"X: {self.x_pos} Y: {self.y_pos}")
+
+            if self.x_pos == self.food_x and self.y_pos == self.food_y:
+                # Food found!!!
+                self.cube_map.set_map_point(self.x_pos, self.y_pos)
+                self.new_food_pos()
+                self.score += 1
+                print(f"Found food! Score: {self.score}")
+            else:
+                # update previous positions
                 self.cube_map.unset_map_point(self.x[0], self.y[0])
                 self.x.pop(0)
                 self.y.pop(0)
-            else:
-                self.found_food = False
-
-
-            for i in range(self.length):
-                self.cube_map.set_map_point(self.x[i], self.y[i])
+                self.cube_map.set_map_point(self.x_pos, self.y_pos)
+                # for i in range(self.length):
+                #     self.cube_map.set_map_point(self.x[i], self.y[i])
 
             self.updateCount = 0
 
@@ -384,8 +334,6 @@ class LEDCubeMap:
         self.cols = cols
         self.max_x = rows - 1
         self.max_y = cols - 1
-        # self.rows = 64
-        # self.cols = 64
         self.pixels = pixel_input_map
         self.pixel_map = {}
 
@@ -427,15 +375,15 @@ def main():
     pixels = image.load()
     cube_map = LEDCubeMap(rows=image.size[0], cols=image.size[1], pixel_input_map=pixels)
     snake = Snake(cube_map)
-    x = 0
-    y = 0
     image.show()
+    last_time = time.process_time()
     while True:
-        # x, y = get(x, y)
-        # x, y = cube_map.position(x, y)
-        snake.update()
-        matrix.Clear()
-        matrix.SetImage(image)
+        new_time = time.process_time()
+        if new_time - last_time > TIME_STEP_LENGTH:
+            last_time = time.process_time()
+            snake.update()
+            matrix.Clear()
+            matrix.SetImage(image)
 
 
 
