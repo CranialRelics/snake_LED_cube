@@ -72,6 +72,8 @@ class Snake:
         self.length = 3
         self.control = 0
 
+        self.found_food = False
+
 
         # Starting points
         self.x = [32, 31, 31]
@@ -253,7 +255,7 @@ class Snake:
             self.transition_map[f"te{i}.0"] = (128, i, 'eb')
             self.transition_map[f"et128.{i}"] = (i, 0, 'tw')
             # Top South
-            self.transition_map[f"ts63.{i}"] = (64, i, 'nb')
+            self.transition_map[f"ts63.{i}"] = (64, i, 'sb')
             self.transition_map[f"st64.{i}"] = (63, i, 'tn')
             # North East
             self.transition_map[f"ne{i+192}.63"] = (128 + i, 0, 'es')
@@ -307,7 +309,6 @@ class Snake:
                             "sb": "xu"
                           }
 
-
     def update(self):
         self.updateCount += 1
         if self.updateCount > self.updateCountMax:
@@ -315,21 +316,26 @@ class Snake:
             pad_direction = self.controller.read()
             if pad_direction == "left":
                 self.direction = self.change_direction_map[f"{self.face}{self.direction}l"]
+                # print(f"On face {self.face} going {self.direction}")
             elif pad_direction == "right":
                 self.direction = self.change_direction_map[f"{self.face}{self.direction}r"]
-
-
+                # print(f"On face {self.face} going {self.direction}")
+            elif pad_direction == "up":
+                pass
+            # else:
+            #     return
 
             new_face = False
             try:
                 position_key = f"{self.face}{self.direction}{self.x_pos}.{self.y_pos}"
                 new_x, new_y, face_change = self.transition_map[position_key]
                 self.x_pos = new_x
-                self.x[0] = new_x
+                self.x.append(new_x)
                 self.y_pos = new_y
-                self.y[0] = new_y
+                self.y.append(new_y)
                 self.face = face_change[0]
                 self.direction = face_change[1]
+                # print(f"On face {self.face} going {self.direction}")
                 new_face = True
             except KeyError:
                 pass
@@ -337,63 +343,38 @@ class Snake:
                 direction = self.coord_map[self.face + self.direction]
                 if direction == "yu":
                     self.y_pos += self.step
-                    self.y[0] = self.y_pos + self.step
+                    self.y.append(self.y_pos)
+                    self.x.append(self.x_pos)
                 elif direction == "yd":
                     self.y_pos  -= self.step
-                    self.y[0] = self.y_pos
+                    self.y.append(self.y_pos)
+                    self.x.append(self.x_pos)
                 elif direction == "xu":
                     self.x_pos += self.step
-                    self.x[0] = self.x_pos
+                    self.x.append(self.x_pos)
+                    self.y.append(self.y_pos)
                 elif direction == "xd":
                     self.x_pos  -= self.step
-                    self.x[0] = self.x_pos
+                    self.x.append(self.x_pos)
+                    self.y.append(self.y_pos)
                 else:
                     raise TypeError
 
-
+            print(f"On face {self.face} going {self.direction}")
+            print(f"X: {self.x_pos} Y: {self.y_pos}")
             # update previous positions
-            for i in range(self.length - 1, 0, -1):
-                # print("self.x[" + str(i) + "] = self.x[" + str(i - 1) + "]")
-                self.cube_map.unset_map_point(self.x[-1], self.y[-1])
-                self.x[i] = self.x[i - 1]
-                self.y[i] = self.y[i - 1]
-
-
-
-            # update position of head of snake
-            # if self.direction == 'xu':
-            #     self.x_pos += self.step
-            #     self.x[0] = self.x_pos
-            # if self.direction == 'xd':
-            #     self.x_pos  -= self.step
-            #     self.x[0] = self.x_pos
-            # if self.direction == 'yd':
-            #     self.y_pos  -= self.step
-            #     self.y[0] = self.y_pos
-            # if self.direction == 'yu':
-            #     self.y_pos += self.step
-            #     self.y[0] = self.y_pos + self.step
+            if not self.found_food:
+                self.cube_map.unset_map_point(self.x[0], self.y[0])
+                self.x.pop(0)
+                self.y.pop(0)
+            else:
+                self.found_food = False
 
 
             for i in range(self.length):
                 self.cube_map.set_map_point(self.x[i], self.y[i])
 
             self.updateCount = 0
-
-
-
-    def move_right(self):
-        self.direction = 0
-
-    def move_left(self):
-        self.direction = 1
-
-    def move_up(self):
-        self.direction = 2
-
-    def move_down(self):
-        self.direction = 3
-
 
 
 
@@ -413,20 +394,13 @@ class LEDCubeMap:
             for j in range(self.cols):
                 self.pixels[i, j] = (0, 0, 0)
 
-    def generate_pixel_map(self):
-        # Top NE(0,0) NW(0,63) SW(63, 63) SE(63, 0)
-        # North TE(192,63) TW(192,0) BE(255,63) BW(255,0)
-        # East ST(128,63) NT(128,0) BS(191,63) BN(191,0)
-        # South TW(64,63) TE(64,0) BE(127,0) BW(127,63)
-        # West TN(256,63) TS(256,0) BN(319,63) BS(319,0)
-        # Bottom NW(320,63) NE(383,63) SW(320,0) SE(383,0)
-        pass
-        for x in range(63):
-            for y in range(63):
-                pass
 
     def set_map_point(self, x, y, color=(255, 255, 255)):
-        self.pixels[x, y] = color
+        try:
+            self.pixels[x, y] = color
+        except IndexError:
+            print(f"Error! X: {x} Y: {y}")
+            raise IndexError
 
     def unset_map_point(self, x, y):
         self.pixels[x, y] = (0, 0, 0)
@@ -445,7 +419,6 @@ class LEDCubeMap:
         self.pixels[x, y] = (255, 255, 255)
         print(x, y)
         return x, y
-
 
 
 def main():
