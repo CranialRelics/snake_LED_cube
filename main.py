@@ -9,6 +9,8 @@ from rgbmatrix import RGBMatrix, RGBMatrixOptions
 
 from control_pad import Controller
 
+from grove import imu9250
+
 # Configuration for the matrix
 options = RGBMatrixOptions()
 options.parallel = 1
@@ -64,11 +66,46 @@ def get():
         else:
             return None
 
+class SensorState:
+    def __init__(self):
+        self.x_states = []
+        self.y_states = []
+        self.z_states = []
+        self.x = 0
+        self.y = 0
+        self.z = 0
+
+    def update(self, states):
+        self.x_states.append(states['x'])
+        self.y_states.append(states['y'])
+        self.z_states.append(states['z'])
+        if len(self.x_states) > 4:
+            self.x_states.pop(0)
+        if len(self.y_states) > 4:
+            self.y_states.pop(0)
+        if len(self.z_states) > 4:
+            self.z_states.pop(0)
+
+    def get_states(self):
+        self.x = sum(self.x_states) / len(self.x_states)
+        self.y = sum(self.y_states) / len(self.y_states)
+        self.z = sum(self.z_states) / len(self.z_states)
+        return self.x, self.y, self.z
+
 
 class Snake:
-    def __init__(self, cube_map):
+    def __init__(self, cube_map, use_controller=False, imu=None):
         self.cube_map = cube_map
-        self.controller = Controller()
+        self.imu = imu
+        if use_controller:
+            self.controller = Controller()
+        else:
+            self.controller = None
+
+        self.side_up = 'n'
+        self.acl_state = SensorState()
+        self.gyro_state = SensorState()
+
         self.x = []
         self.y = []
         self.step = 1
@@ -104,23 +141,6 @@ class Snake:
         Corner = namedtuple("Corner", "edges pixels")
         Face = namedtuple("Face", "corners edges")
 
-        face_params = {
-            "t": Face([Corner("ne", Pixel(0, 0)), Corner("nw", Pixel(0, 63)), Corner("sw", Pixel(63, 63)), Corner("se", Pixel(63, 0))], ["n", "e", "s", "w"]),
-            "b": Face([Corner("nw", Pixel(320, 63)), Corner("ne", Pixel(383, 63)), Corner("sw", Pixel(320, 0)), Corner("se", Pixel(383, 0))], ["n", "e", "s", "w"]),
-            "n": Face([Corner("te", Pixel(192, 63)), Corner("tw", Pixel(192, 0)), Corner("be", Pixel(255, 63)), Corner("bw", Pixel(255, 0))], ["t", "e", "b", "w"]),
-            "e": Face([Corner("st", Pixel(128, 63)), Corner("nt", Pixel(128, 0)), Corner("bs", Pixel(191, 63)), Corner("bn", Pixel(191, 0))], ["s", "t", "n", "b"]),
-            "s": Face([Corner("tw", Pixel(64, 63)), Corner("te", Pixel(64, 0)), Corner("be", Pixel(127, 0)), Corner("bw", Pixel(127, 63))], ["t", "e", "b", "w"]),
-            "w": Face([Corner("tn", Pixel(256, 63)), Corner("ts", Pixel(256, 0)), Corner("bn", Pixel(319, 63)), Corner("bs", Pixel(319, 0))], ["t", "n", "b", "s"])
-            }
-
-        def get_corners(all_corners, adjacent_face):
-            output_corners = []
-            for corner in all_corners:
-                if adjacent_face in corner.edges:
-                    output_corners.append(corner)
-            if len(output_corners) != 2:
-                raise IOError
-            return output_corners
         self.change_direction_map = {
             'tnr':'e',
             'tnl': 'w',
@@ -216,8 +236,8 @@ class Snake:
             self.transition_map[f"bw320.{i}"] = (319, i, 'wt')
             self.transition_map[f"wb319.{i}"] = (320, i, 'be')
             # Bottom South
-            self.transition_map[f"bs{320+i}.0"] = (127, i, 'st')
-            self.transition_map[f"sb127.{i}"] = (320+i, 0, 'bn')
+            self.transition_map[f"bs{320+i}.0"] = (127, 63 - i, 'st')
+            self.transition_map[f"sb127.{63 - i}"] = (320+i, 0, 'bn')
 
         self.coord_map = {
                             "tn": "xd",
@@ -255,21 +275,55 @@ class Snake:
                     break
         self.cube_map.set_map_point(self.food_x, self.food_y, color=(0,255,0))
 
+
+    def get_side_up(self):
+        accl = self.imu.readAccel()
+        gyro = self.imu.readGyro()
+        self.acl_state.update(accl)
+        self.gyro_state.update(gyro)
+        gx, gy, gz = self.gyro_state.get_states()
+        if gx < 20 and gy < 20 and gz < 20:
+            ax, ay, az = self.acl_state.get_states()
+            if az > 0.9:
+                self.side_up = 't'
+            elif az < -0.9:
+                self.side_up = 'b'
+            elif ax > 0.4 and ay > 0.4:
+                self.side_up = 'e'
+            elif ax < -0.4 and ay < -0.4:
+                self.side_up = 'w'
+            elif ax < -0.4 and ay > 0.4:
+                self.side_up = 'n'
+            elif ax > 0.4 and ay < -0.4:
+                self.side_up = 's'
+        else:
+            print("rotating!")
+
+
+
+
     def update(self):
         self.updateCount += 1
         if self.updateCount > self.updateCountMax:
-            pad_direction = self.controller.read()
-            if pad_direction == "left":
-                self.direction = self.change_direction_map[f"{self.face}{self.direction}l"]
+            if self.controller is not None:
+                pad_direction = self.controller.read()
+                if pad_direction == "left":
+                    self.direction = self.change_direction_map[f"{self.face}{self.direction}l"]
+                    # print(f"On face {self.face} going {self.direction}")
+                elif pad_direction == "right":
+                    self.direction = self.change_direction_map[f"{self.face}{self.direction}r"]
+            else:
+                self.get_side_up()
+                if self.side_up != self.face:
+                    self.direction = self.side_up
+
+
                 # print(f"On face {self.face} going {self.direction}")
-            elif pad_direction == "right":
-                self.direction = self.change_direction_map[f"{self.face}{self.direction}r"]
-                # print(f"On face {self.face} going {self.direction}")
-            # Uncomment this to make the game stop every cycle without input
-            # elif pad_direction == "up":
-            #     pass
-            # else:
-            #     return
+                # Uncomment this to make the game stop every cycle without input
+                # elif pad_direction == "up":
+                #     pass
+                # else:
+                #     return
 
             new_face = False
             try:
@@ -286,26 +340,29 @@ class Snake:
             except KeyError:
                 pass
             if not new_face:
-                direction = self.coord_map[self.face + self.direction]
-                if direction == "yu":
-                    self.y_pos += self.step
-                    self.y.append(self.y_pos)
-                    self.x.append(self.x_pos)
-                elif direction == "yd":
-                    self.y_pos  -= self.step
-                    self.y.append(self.y_pos)
-                    self.x.append(self.x_pos)
-                elif direction == "xu":
-                    self.x_pos += self.step
-                    self.x.append(self.x_pos)
-                    self.y.append(self.y_pos)
-                elif direction == "xd":
-                    self.x_pos  -= self.step
-                    self.x.append(self.x_pos)
-                    self.y.append(self.y_pos)
-                else:
-                    raise TypeError
-
+                try:
+                    direction = self.coord_map[self.face + self.direction]
+                    if direction == "yu":
+                        self.y_pos += self.step
+                        self.y.append(self.y_pos)
+                        self.x.append(self.x_pos)
+                    elif direction == "yd":
+                        self.y_pos -= self.step
+                        self.y.append(self.y_pos)
+                        self.x.append(self.x_pos)
+                    elif direction == "xu":
+                        self.x_pos += self.step
+                        self.x.append(self.x_pos)
+                        self.y.append(self.y_pos)
+                    elif direction == "xd":
+                        self.x_pos -= self.step
+                        self.x.append(self.x_pos)
+                        self.y.append(self.y_pos)
+                    else:
+                        raise TypeError
+                except KeyError:
+                    x = 1/2
+            x = 3
             # print(f"On face {self.face} going {self.direction}")
             # print(f"X: {self.x_pos} Y: {self.y_pos}")
 
@@ -370,11 +427,22 @@ class LEDCubeMap:
 
 
 def main():
+    # ToDo: Setup battery voltage read
+    # ToDo: Setup menu system
+    # ToDo: Setup temperature tracking
+
+    imu = imu9250.MPU9250()
+    if imu.checkDataReady():
+        print("IMU Ready")
+    else:
+        print("IMU Not Ready!")
+        sys.exit()
+
     matrix = RGBMatrix(options=options)
     image = Image.new("RGB", (6 * 64, 64))
     pixels = image.load()
     cube_map = LEDCubeMap(rows=image.size[0], cols=image.size[1], pixel_input_map=pixels)
-    snake = Snake(cube_map)
+    snake = Snake(cube_map, use_controller=False, imu=imu)
     image.show()
     last_time = time.process_time()
     while True:
