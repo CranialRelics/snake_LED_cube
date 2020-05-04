@@ -1,12 +1,21 @@
+import sys
 import random
 import time
+import threading
+import multiprocessing
+from multiprocessing.sharedctypes import Value, Array
+import copy
 from collections import namedtuple
 
 from PIL import Image
 from PIL import ImageDraw
-import time
-from rgbmatrix import RGBMatrix, RGBMatrixOptions
+from rgbmatrix import RGBMatrix, RGBMatrixOptions, graphics
 
+font = graphics.Font()
+font.LoadFont("/home/pi/rpi-rgb-led-matrix/fonts/7x13.bdf")
+
+import tty
+import termios
 from control_pad import Controller
 
 from grove import imu9250
@@ -20,19 +29,8 @@ options.rows = 64
 options.cols = 64
 options.brightness = 100  # This seems to be 0 to 100
 
-TIME_STEP_LENGTH = 0.2
+TIME_STEP_LENGTH = 0.3
 
-
-# draw = ImageDraw.Draw(image)  # Declare Draw instance before prims
-# Draw some shapes into image (no immediate effect on matrix)...
-# draw.rectangle((0, 0, 32, 32), fill=(255, 255, 0), outline=(0, 0, 255))
-# draw.line((0, 0, 31, 31), fill=(255, 0, 0))
-# draw.bitmap()
-# draw.line((0, 31, 31, 0), fill=(0, 255, 0))
-# draw.rectangle((0, 0, 0, 0), fill=(255, 255, 0), outline=(0, 0, 255))
-
-
-import sys,tty,termios
 class _Getch:
     def __call__(self):
             fd = sys.stdin.fileno()
@@ -94,9 +92,9 @@ class SensorState:
 
 
 class Snake:
-    def __init__(self, cube_map, use_controller=False, imu=None):
+    def __init__(self, cube_map, use_controller=False, cube_motion=None):
         self.cube_map = cube_map
-        self.imu = imu
+        self.cube_motion = cube_motion
         if use_controller:
             self.controller = Controller()
         else:
@@ -112,22 +110,24 @@ class Snake:
         self.length = 3
         self.control = 0
         self.score = 0
+        self.dead = False
 
         self.found_food = False
         self.food_x = None
         self.food_y = None
         self.new_food_pos()
 
-
         # Starting points
         self.x = [32, 31, 31]
         self.y = [32, 32, 32]
+        self.s_len = 3
         self.x_pos = 32
         self.y_pos = 32
 
         self.face = "t"
         self.direction = "e"
         self.directions = ['u', 'd', 'n', 'e', 's', 'w']
+        self.opposite = {'t': 'b', 'b': 't', 'n':'s', 'e':'w', 's':'n', 'w':'e'}
         self.updateCount = 0
         self.updateCountMax = 0
         # Top NE(0,0) NW(0,63) SW(63, 63) SE(63, 0)
@@ -267,40 +267,19 @@ class Snake:
                           }
 
     def new_food_pos(self):
-        while True:
-            self.food_x = random.randint(0,319) # (0, 319) to exclude bottom, (0, 383) to include bottom
+        good_food = False
+        while not good_food:
+            self.food_x = random.randint(0,383) # (0, 319) to exclude bottom, (0, 383) to include bottom
             self.food_y = random.randint(0,63)
-            if self.food_x not in self.x:
-                if self.food_y not in self.y:
+            good_food = True
+            for x, y in zip(self.x, self.y):
+                if self.food_y == y and self.food_x == x:
+                    good_food = False
                     break
         self.cube_map.set_map_point(self.food_x, self.food_y, color=(0,255,0))
-
-
-    def get_side_up(self):
-        accl = self.imu.readAccel()
-        gyro = self.imu.readGyro()
-        self.acl_state.update(accl)
-        self.gyro_state.update(gyro)
-        gx, gy, gz = self.gyro_state.get_states()
-        if gx < 20 and gy < 20 and gz < 20:
-            ax, ay, az = self.acl_state.get_states()
-            if az > 0.9:
-                self.side_up = 't'
-            elif az < -0.9:
-                self.side_up = 'b'
-            elif ax > 0.4 and ay > 0.4:
-                self.side_up = 'e'
-            elif ax < -0.4 and ay < -0.4:
-                self.side_up = 'w'
-            elif ax < -0.4 and ay > 0.4:
-                self.side_up = 'n'
-            elif ax > 0.4 and ay < -0.4:
-                self.side_up = 's'
-        else:
-            print("rotating!")
-
-
-
+        # self.cube_map.set_map_point(self.food_x + 1, self.food_y + 1, color=(0, 255, 0))
+        # self.cube_map.set_map_point(self.food_x, self.food_y + 1, color=(0, 255, 0))
+        # self.cube_map.set_map_point(self.food_x + 1, self.food_y, color=(0, 255, 0))
 
     def update(self):
         self.updateCount += 1
@@ -313,11 +292,9 @@ class Snake:
                 elif pad_direction == "right":
                     self.direction = self.change_direction_map[f"{self.face}{self.direction}r"]
             else:
-                self.get_side_up()
-                if self.side_up != self.face:
+                self.side_up = self.cube_motion.get_face()
+                if self.side_up != self.face and self.opposite[self.side_up] != self.direction:
                     self.direction = self.side_up
-
-
                 # print(f"On face {self.face} going {self.direction}")
                 # Uncomment this to make the game stop every cycle without input
                 # elif pad_direction == "up":
@@ -361,8 +338,12 @@ class Snake:
                     else:
                         raise TypeError
                 except KeyError:
-                    x = 1/2
-            x = 3
+                    # ToDo: Investigate if I should pass here or if this is bad
+                    pass
+                xy = [[x, y] for x, y in zip(self.x, self.y)]
+                if xy.count(xy[-1]) > 1:
+                    self.dead = True
+
             # print(f"On face {self.face} going {self.direction}")
             # print(f"X: {self.x_pos} Y: {self.y_pos}")
 
@@ -370,13 +351,15 @@ class Snake:
                 # Food found!!!
                 self.cube_map.set_map_point(self.x_pos, self.y_pos)
                 self.new_food_pos()
+                self.s_len += 20
                 self.score += 1
                 print(f"Found food! Score: {self.score}")
             else:
                 # update previous positions
-                self.cube_map.unset_map_point(self.x[0], self.y[0])
-                self.x.pop(0)
-                self.y.pop(0)
+                if len(self.x) > self.s_len:
+                    self.cube_map.unset_map_point(self.x[0], self.y[0])
+                    self.x.pop(0)
+                    self.y.pop(0)
                 self.cube_map.set_map_point(self.x_pos, self.y_pos)
                 # for i in range(self.length):
                 #     self.cube_map.set_map_point(self.x[i], self.y[i])
@@ -426,6 +409,165 @@ class LEDCubeMap:
         return x, y
 
 
+def play_snake(matrix, cube_motion=None):
+    image = Image.new("RGB", (6 * 64, 64))
+    pixels = image.load()
+    cube_map = LEDCubeMap(rows=image.size[0], cols=image.size[1], pixel_input_map=pixels)
+
+    if cube_motion is None:
+        snake = Snake(cube_map, use_controller=True)
+    else:
+        snake = Snake(cube_map, use_controller=False, cube_motion=cube_motion)
+
+    last_time = time.process_time()
+    while True:
+        new_time = time.process_time()
+        if new_time - last_time > TIME_STEP_LENGTH:
+            last_time = time.process_time()
+            snake.update()
+            matrix.Clear()
+            matrix.SetImage(image)
+            if snake.dead:
+                return snake.score
+
+class CubeMotion:
+    def __init__(self, imu):
+        self.imu = imu
+        self.rotating = Value('i', 0)
+        self.rotational_axis = Array('c', '')
+        self.last_rotational_axis = None
+        self.rotational_distance = 0.0
+        self.face_up = Array('c', b't')
+        self.exit = False
+
+    def update(self):
+        accl = self.imu.readAccel()
+        gyro = self.imu.readGyro()
+        gx, gy, gz = gyro.values()
+        ax, ay, az = accl.values()
+        last_face = self.face_up.value
+        if gx < 20 and gy < 20 and gz < 20:
+            if az > 0.9:
+                self.face_up.value = b't'
+            elif az < -0.9:
+                self.face_up.value = b'b'
+            elif ax > 0.4 and ay > 0.4:
+                self.face_up.value = b'e'
+            elif ax < -0.4 and ay < -0.4:
+                self.face_up.value = b'w'
+            elif ax < -0.4 and ay > 0.4:
+                self.face_up.value = b'n'
+            elif ax > 0.4 and ay < -0.4:
+                self.face_up.value = b's'
+        # else:
+        #     print("rotating!")
+        if gz > 15:
+            self.rotation = True
+            self.rotational_axis = "z+"
+        elif gz < -15:
+            self.rotation = True
+            self.rotational_axis = "z-"
+        elif gx > 15 and gy > 15:
+            self.rotating = 1
+            self.rotational_axis = "x+"
+        elif gx < -15 and gy < -15:
+            self.rotating = 1
+            self.rotational_axis = "x-"
+        elif gx < -15 and gy > 15:
+            self.rotating = 1
+            self.rotational_axis = "y+"
+        elif gx > 15 and gy < -15:
+            self.rotating = 1
+            self.rotational_axis = "y-"
+        else:
+            self.rotating = 0
+            self.last_rotational_axis = self.rotational_axis
+            self.rotational_distance = 0.0
+
+        # if last_face != self.face_up.value:
+        #     print(f"New Face: {self.face_up.value.decode('utf-8')}")
+        # if self.rotating:
+        #     print(self.rotational_axis)
+
+
+    def track_motion(self):
+        while not self.exit:
+            self.update()
+
+    def get_face(self):
+        return self.face_up.value.decode('utf-8')
+
+
+class CubeMenu:
+    def __init__(self, matrix, cube_motion):
+        self.matrix = matrix
+        self.cube_motion = cube_motion
+        self.image = None
+        self.menu_exit = False
+        self.move = ""
+        self.menu_position = 0
+        self.menu_items = 2
+        self.sem = threading.Semaphore(1)
+
+
+    def display_menu(self):
+        while True:
+            time.sleep(0.5)
+            with self.sem:
+                self.matrix.SetImage(self.image, 0, 0)
+            if self.menu_exit:
+                return
+
+    def update_menu(self, image):
+        new_image = copy.copy(image)
+        draw = ImageDraw.Draw(new_image)
+        if self.menu_position == 0:
+            draw.rectangle((1, 5, 2, 6), fill=(0, 0, 0), outline=(255, 255, 255))
+        elif self.menu_position == 1:
+            draw.rectangle((1, 20, 2, 21), fill=(0, 0, 0), outline=(255, 255, 255))
+
+        return new_image
+
+    def play_menu(self):
+        choice = "snake"
+        image1 = Image.new("RGB", (6 * 64, 64))
+
+        draw1 = ImageDraw.Draw(image1)
+        draw1.rectangle((0, 0, 63, 63), fill=(0, 0, 0), outline=(0, 0, 255))
+        draw1.text((4, 0), "Play Snake\nExit", fill=(0, 0, 255))
+
+        image2 = copy.copy(image1)
+        draw2 = ImageDraw.Draw(image2)
+        draw2.rectangle((1, 5, 2, 6), fill=(0, 0, 0), outline=(255, 255, 255))
+        self.image = image1
+        display_thread = threading.Thread(target=self.display_menu)
+        display_thread.start()
+        start_time = time.time()
+        while True:
+            time.sleep(0.5)
+            with self.sem:
+                self.image = image1
+            time.sleep(0.5)
+            new_image = self.update_menu(image1)
+            with self.sem:
+                self.image = new_image
+            if time.time() - start_time > 5:
+                break
+
+        self.menu_exit = True
+        display_thread.join()
+        self.matrix.Clear()
+
+
+
+        #draw1.text((4, 12), "Exit", fill=(0, 0, 255))
+
+        # draw.multiline_text((0, 0), "testasdf\ntest", fill=(0, 0, 255))
+        # draw.multiline_text((0, 0), "testasdf", fill=(0, 0, 255))
+        # draw.text((0, 20), "test", fill=(0, 255, 255))
+        return choice
+
+
 def main():
     # ToDo: Setup battery voltage read
     # ToDo: Setup menu system
@@ -438,20 +580,57 @@ def main():
         print("IMU Not Ready!")
         sys.exit()
 
+    cube_motion = CubeMotion(imu)
+
     matrix = RGBMatrix(options=options)
-    image = Image.new("RGB", (6 * 64, 64))
-    pixels = image.load()
-    cube_map = LEDCubeMap(rows=image.size[0], cols=image.size[1], pixel_input_map=pixels)
-    snake = Snake(cube_map, use_controller=False, imu=imu)
-    image.show()
-    last_time = time.process_time()
+
+
+    cube_menu = CubeMenu(matrix, cube_motion)
+    motion_tracking = multiprocessing.Process(target=cube_motion.track_motion)
+    motion_tracking.start()
+
     while True:
-        new_time = time.process_time()
-        if new_time - last_time > TIME_STEP_LENGTH:
-            last_time = time.process_time()
-            snake.update()
-            matrix.Clear()
-            matrix.SetImage(image)
+        choice = cube_menu.play_menu()
+        if choice == "snake":
+            score = play_snake(matrix, cube_motion)
+            image = Image.new("RGB", (6 * 64, 64))
+            draw = ImageDraw.Draw(image)
+            for idx in range(10, 383, 64):
+                draw.multiline_text((idx, 25), f"Score: {score}", fill=(255, 0, 0))
+            for _ in range(10):
+                matrix.SetImage(image, 0, 0)
+                time.sleep(0.6)
+                matrix.Clear()
+                time.sleep(0.2)
+        elif choice == "exit":
+            break
+
+    time.sleep(1)
+    matrix.Clear()
+    image = Image.new("RGB", (6 * 64, 64))
+    draw = ImageDraw.Draw(image)
+    draw.multiline_text((0, 0), "Exiting!!!", fill=(255, 0, 0))
+    matrix.SetImage(image, 0, 0)
+    time.sleep(2)
+    matrix.Clear()
+    cube_motion.exit = True
+    motion_tracking.join()
+
+
+    # draw = ImageDraw.Draw(image)
+    # draw.rectangle((0, 0, 63, 63), fill=(0, 0, 0), outline=(0, 0, 255))
+    # # draw.multiline_text((0, 0), "testasdf\ntest", fill=(0, 0, 255))
+    # draw.multiline_text((0, 0), "testasdf", fill=(0, 0, 255))
+    # draw.text((0, 20), "test", fill=(0, 255, 255))
+
+
+    # from grove import adc
+    # analog = adc.ADC()
+    # idx = 6
+    # for _ in range(1000):
+    #     print(f"Channel {idx} Voltage: {analog.read_voltage(idx)/1000}")
+    #
+    #     time.sleep(0.5)
 
 
 
