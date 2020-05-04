@@ -1,5 +1,3 @@
-
-
 # coding: utf-8
 ## @package MPU9250
 #  This is a FaBo9Axis_MPU9250 library for the FaBo 9AXIS I2C Brick.
@@ -17,6 +15,8 @@ import time
 
 ## MPU9250 Default I2C slave address
 SLAVE_ADDRESS        = 0x69
+## AK8963 I2C slave address
+AK8963_SLAVE_ADDRESS = 0x0C
 ## Device id
 DEVICE_ID            = 0x71
 
@@ -100,6 +100,7 @@ class MPU9250:
     def __init__(self, address=SLAVE_ADDRESS):
         self.address = address
         self.configMPU9250(GFS_250, AFS_2G)
+        self.configAK8963(AK8963_MODE_C8HZ, AK8963_BIT_16)
 
     ## Search Device
     #  @param [in] self The object pointer.
@@ -155,6 +156,37 @@ class MPU9250:
         bus.write_byte_data(self.address, INT_PIN_CFG, 0x02)
         time.sleep(0.1)
 
+    ## Configure AK8963
+    #  @param [in] self The object pointer.
+    #  @param [in] mode Magneto Mode Select(default:AK8963_MODE_C8HZ[Continous 8Hz])
+    #  @param [in] mfs Magneto Scale Select(default:AK8963_BIT_16[16bit])
+    def configAK8963(self, mode, mfs):
+        if mfs == AK8963_BIT_14:
+            self.mres = 4912.0/8190.0
+        else: #  mfs == AK8963_BIT_16:
+            self.mres = 4912.0/32760.0
+
+        bus.write_byte_data(AK8963_SLAVE_ADDRESS, AK8963_CNTL1, 0x00)
+        time.sleep(0.01)
+
+        # set read FuseROM mode
+        bus.write_byte_data(AK8963_SLAVE_ADDRESS, AK8963_CNTL1, 0x0F)
+        time.sleep(0.01)
+
+        # read coef data
+        data = bus.read_i2c_block_data(AK8963_SLAVE_ADDRESS, AK8963_ASAX, 3)
+
+        self.magXcoef = (data[0] - 128) / 256.0 + 1.0
+        self.magYcoef = (data[1] - 128) / 256.0 + 1.0
+        self.magZcoef = (data[2] - 128) / 256.0 + 1.0
+
+        # set power down mode
+        bus.write_byte_data(AK8963_SLAVE_ADDRESS, AK8963_CNTL1, 0x00)
+        time.sleep(0.01)
+
+        # set scale&continous mode
+        bus.write_byte_data(AK8963_SLAVE_ADDRESS, AK8963_CNTL1, (mfs<<4|mode))
+        time.sleep(0.01)
 
     ## brief Check data ready
     #  @param [in] self The object pointer.
@@ -212,7 +244,20 @@ class MPU9250:
         y=0
         z=0
 
+        # check data ready
+        drdy = bus.read_byte_data(AK8963_SLAVE_ADDRESS, AK8963_ST1)
+        if drdy & 0x01 :
+            data = bus.read_i2c_block_data(AK8963_SLAVE_ADDRESS, AK8963_MAGNET_OUT, 7)
 
+            # check overflow
+            if (data[6] & 0x08)!=0x08:
+                x = self.dataConv(data[0], data[1])
+                y = self.dataConv(data[2], data[3])
+                z = self.dataConv(data[4], data[5])
+
+                x = round(x * self.mres * self.magXcoef, 3)
+                y = round(y * self.mres * self.magYcoef, 3)
+                z = round(z * self.mres * self.magZcoef, 3)
 
         return {"x":x, "y":y, "z":z}
 
