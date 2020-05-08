@@ -521,6 +521,23 @@ class CubeMenu:
     def update_menu(self, image):
         new_image = copy.copy(image)
         draw = ImageDraw.Draw(new_image)
+        time_now = time.time()
+        if time_now - self.menu_updated > 0.5:
+            tilt = self.cube_motion.get_face()
+            if tilt == "e":
+                self.menu_updated = time.time()
+                self.menu_position += 1
+                if self.menu_position >= self.menu_items:
+                    self.menu_position = self.menu_items - 1
+            elif tilt == "w":
+                self.menu_updated = time.time()
+                self.menu_position -= 1
+                if self.menu_position < 0:
+                    self.menu_position = 0
+            elif tilt == "s":
+                # We have a selection!
+                return self.menu[self.menu_position]
+
         if self.menu_position == 0:
             draw.rectangle((1, 5, 2, 6), fill=(0, 0, 0), outline=(255, 255, 255))
         elif self.menu_position == 1:
@@ -529,12 +546,11 @@ class CubeMenu:
         return new_image
 
     def play_menu(self):
-        choice = "snake"
         image1 = Image.new("RGB", (6 * 64, 64))
 
         draw1 = ImageDraw.Draw(image1)
         draw1.rectangle((0, 0, 63, 63), fill=(0, 0, 0), outline=(0, 0, 255))
-        draw1.text((4, 0), "Play Snake\nExit", fill=(0, 0, 255))
+        draw1.text((3, 0), "Play Snake\nExit", fill=(0, 0, 255))
 
         image2 = copy.copy(image1)
         draw2 = ImageDraw.Draw(image2)
@@ -548,24 +564,19 @@ class CubeMenu:
             with self.sem:
                 self.image = image1
             time.sleep(0.5)
-            new_image = self.update_menu(image1)
+            update = self.update_menu(image1)
+            if type(update) is str:
+                break
             with self.sem:
-                self.image = new_image
-            if time.time() - start_time > 5:
+                self.image = update
+            if time.time() - start_time > 120:
                 break
 
         self.menu_exit = True
         display_thread.join()
         self.matrix.Clear()
 
-
-
-        #draw1.text((4, 12), "Exit", fill=(0, 0, 255))
-
-        # draw.multiline_text((0, 0), "testasdf\ntest", fill=(0, 0, 255))
-        # draw.multiline_text((0, 0), "testasdf", fill=(0, 0, 255))
-        # draw.text((0, 20), "test", fill=(0, 255, 255))
-        return choice
+        return self.menu[self.menu_position]
 
 
 def main():
@@ -609,7 +620,7 @@ def main():
     matrix.Clear()
     image = Image.new("RGB", (6 * 64, 64))
     draw = ImageDraw.Draw(image)
-    draw.multiline_text((0, 0), "Exiting!!!", fill=(255, 0, 0))
+    draw.multiline_text((1, 1), "Exiting!!!", fill=(255, 0, 0))
     matrix.SetImage(image, 0, 0)
     time.sleep(2)
     matrix.Clear()
