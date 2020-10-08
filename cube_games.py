@@ -7,27 +7,13 @@ from multiprocessing.sharedctypes import Value, Array
 import copy
 from collections import namedtuple
 
-from PIL import Image
-from PIL import ImageDraw
-from rgbmatrix import RGBMatrix, RGBMatrixOptions, graphics
-
-font = graphics.Font()
-font.LoadFont("/home/pi/rpi-rgb-led-matrix/fonts/7x13.bdf")
 
 import tty
 import termios
-from control_pad import Controller
 
 from grove import imu9250
 
-# Configuration for the matrix
-options = RGBMatrixOptions()
-options.parallel = 1
-options.hardware_mapping = 'adafruit-hat-pwm'  # If you have an Adafruit HAT: 'adafruit-hat'
-options.chain_length = 6
-options.rows = 64
-options.cols = 64
-options.brightness = 100  # This seems to be 0 to 100
+from led_matrix import *
 
 TIME_STEP_LENGTH = 0.3
 
@@ -64,45 +50,13 @@ def get():
         else:
             return None
 
-class SensorState:
-    def __init__(self):
-        self.x_states = []
-        self.y_states = []
-        self.z_states = []
-        self.x = 0
-        self.y = 0
-        self.z = 0
-
-    def update(self, states):
-        self.x_states.append(states['x'])
-        self.y_states.append(states['y'])
-        self.z_states.append(states['z'])
-        if len(self.x_states) > 4:
-            self.x_states.pop(0)
-        if len(self.y_states) > 4:
-            self.y_states.pop(0)
-        if len(self.z_states) > 4:
-            self.z_states.pop(0)
-
-    def get_states(self):
-        self.x = sum(self.x_states) / len(self.x_states)
-        self.y = sum(self.y_states) / len(self.y_states)
-        self.z = sum(self.z_states) / len(self.z_states)
-        return self.x, self.y, self.z
-
 
 class Snake:
-    def __init__(self, cube_map, use_controller=False, cube_motion=None):
+    def __init__(self, cube_map, cube_motion=None):
         self.cube_map = cube_map
         self.cube_motion = cube_motion
-        if use_controller:
-            self.controller = Controller()
-        else:
-            self.controller = None
 
         self.side_up = 'n'
-        self.acl_state = SensorState()
-        self.gyro_state = SensorState()
 
         self.x = []
         self.y = []
@@ -112,10 +66,11 @@ class Snake:
         self.score = 0
         self.dead = False
 
+        self.num_food = 5
         self.found_food = False
-        self.food_x = None
-        self.food_y = None
-        self.new_food_pos()
+        self.food = []
+        for _ in range(self.num_food):
+            self.new_food_pos()
 
         # Starting points
         self.x = [32, 31, 31]
@@ -199,8 +154,6 @@ class Snake:
         }
         self.transition_map = {}
         # keys are [single char for face][single char for direction][x coord][y coord]:(x,y)
-        # Top transitions
-
         for i in range(64):
             # Top North
             self.transition_map[f"tn0.{i}"] = (192, 63 - i, 'nb')
@@ -268,15 +221,21 @@ class Snake:
 
     def new_food_pos(self):
         good_food = False
+        food = namedtuple("Food", "x y")
         while not good_food:
-            self.food_x = random.randint(0,383) # (0, 319) to exclude bottom, (0, 383) to include bottom
-            self.food_y = random.randint(0,63)
+            food.x = random.randint(0,383) # (0, 319) to exclude bottom, (0, 383) to include bottom
+            food.y = random.randint(0,63)
             good_food = True
             for x, y in zip(self.x, self.y):
-                if self.food_y == y and self.food_x == x:
+                if food.y == y and food.x == x:
                     good_food = False
-                    break
-        self.cube_map.set_map_point(self.food_x, self.food_y, color=(0,255,0))
+                    continue
+            for existing_food in self.food:
+                if existing_food.x == food.x and existing_food.y == food.y:
+                    good_food = False
+                    continue
+        self.food.append(food)
+        self.cube_map.set_map_point(food.x, food.y, color=(0,255,0))
         # self.cube_map.set_map_point(self.food_x + 1, self.food_y + 1, color=(0, 255, 0))
         # self.cube_map.set_map_point(self.food_x, self.food_y + 1, color=(0, 255, 0))
         # self.cube_map.set_map_point(self.food_x + 1, self.food_y, color=(0, 255, 0))
@@ -284,23 +243,15 @@ class Snake:
     def update(self):
         self.updateCount += 1
         if self.updateCount > self.updateCountMax:
-            if self.controller is not None:
-                pad_direction = self.controller.read()
-                if pad_direction == "left":
-                    self.direction = self.change_direction_map[f"{self.face}{self.direction}l"]
-                    # print(f"On face {self.face} going {self.direction}")
-                elif pad_direction == "right":
-                    self.direction = self.change_direction_map[f"{self.face}{self.direction}r"]
-            else:
-                self.side_up = self.cube_motion.get_face()
-                if self.side_up != self.face and self.opposite[self.side_up] != self.direction:
-                    self.direction = self.side_up
-                # print(f"On face {self.face} going {self.direction}")
-                # Uncomment this to make the game stop every cycle without input
-                # elif pad_direction == "up":
-                #     pass
-                # else:
-                #     return
+            self.side_up = self.cube_motion.get_face()
+            if self.side_up != self.face and self.opposite[self.side_up] != self.direction:
+                self.direction = self.side_up
+            # print(f"On face {self.face} going {self.direction}")
+            # Uncomment this to make the game stop every cycle without input
+            # elif pad_direction == "up":
+            #     pass
+            # else:
+            #     return
 
             new_face = False
             try:
@@ -346,15 +297,19 @@ class Snake:
 
             # print(f"On face {self.face} going {self.direction}")
             # print(f"X: {self.x_pos} Y: {self.y_pos}")
-
-            if self.x_pos == self.food_x and self.y_pos == self.food_y:
-                # Food found!!!
-                self.cube_map.set_map_point(self.x_pos, self.y_pos)
-                self.new_food_pos()
-                self.s_len += 20
-                self.score += 1
-                print(f"Found food! Score: {self.score}")
-            else:
+            for food in self.food:
+                if self.x_pos == food.x and self.y_pos == food.y:
+                    # Food found!!!
+                    self.cube_map.set_map_point(self.x_pos, self.y_pos)
+                    self.new_food_pos()
+                    self.s_len += 30
+                    self.score += 1
+                    self.found_food = True
+                    print(f"Found food! Score: {self.score}")
+                    break
+                else:
+                    self.found_food = False
+            if not self.found_food:
                 # update previous positions
                 if len(self.x) > self.s_len:
                     self.cube_map.unset_map_point(self.x[0], self.y[0])
@@ -365,7 +320,6 @@ class Snake:
                 #     self.cube_map.set_map_point(self.x[i], self.y[i])
 
             self.updateCount = 0
-
 
 
 class LEDCubeMap:
@@ -409,15 +363,12 @@ class LEDCubeMap:
         return x, y
 
 
-def play_snake(matrix, cube_motion=None):
+def play_snake(matrix, cube_motion):
     image = Image.new("RGB", (6 * 64, 64))
     pixels = image.load()
     cube_map = LEDCubeMap(rows=image.size[0], cols=image.size[1], pixel_input_map=pixels)
 
-    if cube_motion is None:
-        snake = Snake(cube_map, use_controller=True)
-    else:
-        snake = Snake(cube_map, use_controller=False, cube_motion=cube_motion)
+    snake = Snake(cube_map, cube_motion=cube_motion)
 
     last_time = time.process_time()
     while True:
@@ -447,17 +398,17 @@ class CubeMotion:
         ax, ay, az = accl.values()
         last_face = self.face_up.value
         if gx < 20 and gy < 20 and gz < 20:
-            if az > 0.9:
+            if az > 0.6:
                 self.face_up.value = b't'
-            elif az < -0.9:
+            elif az < -0.6:
                 self.face_up.value = b'b'
-            elif ax > 0.4 and ay > 0.4:
+            elif ax > 0.3 and ay > 0.3:
                 self.face_up.value = b'e'
-            elif ax < -0.4 and ay < -0.4:
+            elif ax < -0.3 and ay < -0.3:
                 self.face_up.value = b'w'
-            elif ax < -0.4 and ay > 0.4:
+            elif ax < -0.3 and ay > 0.3:
                 self.face_up.value = b'n'
-            elif ax > 0.4 and ay < -0.4:
+            elif ax > 0.3 and ay < -0.3:
                 self.face_up.value = b's'
         # else:
         #     print("rotating!")
@@ -506,7 +457,10 @@ class CubeMenu:
         self.menu_exit = False
         self.move = ""
         self.menu_position = 0
-        self.menu_items = 2
+        self.menu_updated = time.time()
+        self.menu = {0: "snake", 1: "exit"}
+        self.cursor_position = {0: (1, 5, 2, 6), 1: (1, 20, 2, 21)}
+        self.menu_items = len(self.menu)
         self.sem = threading.Semaphore(1)
 
 
@@ -539,14 +493,15 @@ class CubeMenu:
                 return self.menu[self.menu_position]
 
         if self.menu_position == 0:
-            draw.rectangle((1, 5, 2, 6), fill=(0, 0, 0), outline=(255, 255, 255))
+            draw.rectangle(self.cursor_position[self.menu_position], fill=(0, 0, 0), outline=(255, 255, 255))
         elif self.menu_position == 1:
-            draw.rectangle((1, 20, 2, 21), fill=(0, 0, 0), outline=(255, 255, 255))
+            draw.rectangle(self.cursor_position[self.menu_position], fill=(0, 0, 0), outline=(255, 255, 255))
 
         return new_image
 
     def play_menu(self):
         image1 = Image.new("RGB", (6 * 64, 64))
+        self.menu_exit = False
 
         draw1 = ImageDraw.Draw(image1)
         draw1.rectangle((0, 0, 63, 63), fill=(0, 0, 0), outline=(0, 0, 255))
@@ -571,9 +526,11 @@ class CubeMenu:
                 self.image = update
             if time.time() - start_time > 120:
                 break
-
         self.menu_exit = True
         display_thread.join()
+        draw1.rectangle(self.cursor_position[self.menu_position], fill=(0, 0, 0), outline=(20, 255, 255))
+        self.matrix.SetImage(image1, 0, 0)
+        time.sleep(1)
         self.matrix.Clear()
 
         return self.menu[self.menu_position]
@@ -581,7 +538,6 @@ class CubeMenu:
 
 def main():
     # ToDo: Setup battery voltage read
-    # ToDo: Setup menu system
     # ToDo: Setup temperature tracking
 
     imu = imu9250.MPU9250()
@@ -606,7 +562,7 @@ def main():
             score = play_snake(matrix, cube_motion)
             image = Image.new("RGB", (6 * 64, 64))
             draw = ImageDraw.Draw(image)
-            for idx in range(10, 383, 64):
+            for idx in range(8, 383, 64):
                 draw.multiline_text((idx, 25), f"Score: {score}", fill=(255, 0, 0))
             for _ in range(10):
                 matrix.SetImage(image, 0, 0)
@@ -626,24 +582,6 @@ def main():
     matrix.Clear()
     cube_motion.exit = True
     motion_tracking.join()
-
-
-    # draw = ImageDraw.Draw(image)
-    # draw.rectangle((0, 0, 63, 63), fill=(0, 0, 0), outline=(0, 0, 255))
-    # # draw.multiline_text((0, 0), "testasdf\ntest", fill=(0, 0, 255))
-    # draw.multiline_text((0, 0), "testasdf", fill=(0, 0, 255))
-    # draw.text((0, 20), "test", fill=(0, 255, 255))
-
-
-    # from grove import adc
-    # analog = adc.ADC()
-    # idx = 6
-    # for _ in range(1000):
-    #     print(f"Channel {idx} Voltage: {analog.read_voltage(idx)/1000}")
-    #
-    #     time.sleep(0.5)
-
-
 
 
 if __name__ == "__main__":
