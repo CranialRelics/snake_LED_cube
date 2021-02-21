@@ -18,7 +18,8 @@ OVER_TEMP = False
 
 GAMEPROCNAME = "cube_games"
 GAME_CMDS = ["python3", "/home/pi/devel/ledcube/cube_games.py"]
-
+DEMO_STR = "/home/pi/rpi-rgb-led-matrix/examples-api-use/demo --led-rows=64 --led-cols=64 --led-slowdown-gpio=4 --led-chain=6 --led-gpio-mapping=adafruit-hat-pwm -D "
+DEMOPROCNAME = "demo"
 
 
 # My voltages
@@ -39,6 +40,7 @@ GAME_CMDS = ["python3", "/home/pi/devel/ledcube/cube_games.py"]
 #         matrix.Clear()
 #         time.sleep(0.2)
 
+
 class CubeController:
     def __init__(self):
         self.remote_controller = Controller()
@@ -55,6 +57,16 @@ class CubeController:
                 self.start_games()
             elif data == "select":
                 self.stop_games()
+                self.stop_demo()
+            elif data == "square":
+                self.stop_demo()
+                self.start_demo("7")
+            elif data == "circle":
+                self.stop_demo()
+                self.start_demo("10")
+            elif data == "triangle":
+                self.stop_demo()
+                self.start_demo("11")
 
     @staticmethod
     def games_running():
@@ -65,22 +77,43 @@ class CubeController:
                     if GAMEPROCNAME in component:
                         return True
 
+    @staticmethod
+    def demo_running():
+        global DEMOPROCNAME
+        for proc in psutil.process_iter():
+                for component in proc.cmdline():
+                    if DEMOPROCNAME in component:
+                        return True
+
     def start_games(self):
         if not self.games_running():
             global GAME_CMDS
-            process = subprocess.Popen(GAME_CMDS)
+            subprocess.Popen(GAME_CMDS)
         time.sleep(1)
         if not self.games_running():
             raise OSError
 
+    @staticmethod
+    def start_demo(demo_numb):
+        global DEMO_STR
+        subprocess.Popen(DEMO_STR + demo_numb, shell=True)
+
+    @staticmethod
+    def stop_process(name):
+        for proc in psutil.process_iter():
+            for component in proc.cmdline():
+                if name in component:
+                    proc.kill()
+                    return
+
     def stop_games(self):
         global GAMEPROCNAME
-        for proc in psutil.process_iter():
-            if "python" in proc.name():
-                for component in proc.cmdline():
-                    if GAMEPROCNAME in component:
-                        proc.kill()
-                        return
+        self.stop_process(GAMEPROCNAME)
+
+    def stop_demo(self):
+        global DEMOPROCNAME
+        self.stop_process(DEMOPROCNAME)
+        self.stop_process(DEMOPROCNAME)
 
 
 def check_temperature():

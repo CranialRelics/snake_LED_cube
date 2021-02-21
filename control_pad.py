@@ -18,6 +18,8 @@ class Controller:
         self.up_down_code = 17
         self.up_down_values = [-1, 0, 1]
         self.square_code = 307
+        self.circle_code = 305
+        self.triangle_code = 308
         self.start_code = 315
         self.select_code = 314
         self.auto_forward = AUTOFORWARD
@@ -43,6 +45,12 @@ class Controller:
                     return "start"
                 elif event.code == self.select_code and event.value == 1:
                     return "select"
+                elif event.code == self.square_code and event.value == 1:
+                    return "square"
+                elif event.code == self.circle_code and event.value == 1:
+                    return "circle"
+                elif event.code == self.triangle_code and event.value == 1:
+                    return "triangle"
 
                 if event.code == self.square_code and event.value == 1 and self.auto_forward:
                     self.auto_forward = False

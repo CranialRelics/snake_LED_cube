@@ -17,6 +17,7 @@ from led_matrix import *
 
 TIME_STEP_LENGTH = 0.3
 
+
 class _Getch:
     def __call__(self):
             fd = sys.stdin.fileno()
@@ -27,6 +28,7 @@ class _Getch:
             finally:
                 termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
             return ch
+
 
 def get():
         inkey = _Getch()
@@ -336,7 +338,6 @@ class LEDCubeMap:
             for j in range(self.cols):
                 self.pixels[i, j] = (0, 0, 0)
 
-
     def set_map_point(self, x, y, color=(255, 255, 255)):
         try:
             self.pixels[x, y] = color
@@ -380,6 +381,7 @@ def play_snake(matrix, cube_motion):
             matrix.SetImage(image)
             if snake.dead:
                 return snake.score
+
 
 class CubeMotion:
     def __init__(self, imu):
@@ -440,7 +442,6 @@ class CubeMotion:
         # if self.rotating:
         #     print(self.rotational_axis)
 
-
     def track_motion(self):
         while not self.exit:
             self.update()
@@ -462,7 +463,6 @@ class CubeMenu:
         self.cursor_position = {0: (1, 5, 2, 6), 1: (1, 20, 2, 21)}
         self.menu_items = len(self.menu)
         self.sem = threading.Semaphore(1)
-
 
     def display_menu(self):
         while True:
@@ -537,7 +537,6 @@ class CubeMenu:
 
 
 def main():
-    # ToDo: Setup battery voltage read
     # ToDo: Setup temperature tracking
 
     imu = imu9250.MPU9250()
@@ -550,7 +549,6 @@ def main():
     cube_motion = CubeMotion(imu)
 
     matrix = RGBMatrix(options=options)
-
 
     cube_menu = CubeMenu(matrix, cube_motion)
     motion_tracking = multiprocessing.Process(target=cube_motion.track_motion)
