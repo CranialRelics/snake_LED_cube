@@ -7,50 +7,13 @@ from multiprocessing.sharedctypes import Value, Array
 import copy
 from collections import namedtuple
 
-
-import tty
-import termios
-
 from grove import imu9250
 
 from led_matrix import *
 
+from utils import LEDCubeMap
+
 TIME_STEP_LENGTH = 0.3
-
-
-class _Getch:
-    def __call__(self):
-            fd = sys.stdin.fileno()
-            old_settings = termios.tcgetattr(fd)
-            try:
-                tty.setraw(sys.stdin.fileno())
-                ch = sys.stdin.read(3)
-            finally:
-                termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
-            return ch
-
-
-def get():
-        inkey = _Getch()
-        while(1):
-                k=inkey()
-                if k!='':break
-        if 'q' in k:
-            sys.exit()
-        elif k=='\x1b[A' or 'w' in k:
-            # return 'up'
-            return 2
-        elif k=='\x1b[B' or 's' in k:
-            # return  "down"
-            return 3
-        elif k=='\x1b[C' or 'd' in k:
-            # return  "right"
-            return 0
-        elif k=='\x1b[D' or 'a' in k:
-            # return  "left"
-            return 1
-        else:
-            return None
 
 
 class Snake:
@@ -87,6 +50,8 @@ class Snake:
         self.opposite = {'t': 'b', 'b': 't', 'n':'s', 'e':'w', 's':'n', 'w':'e'}
         self.updateCount = 0
         self.updateCountMax = 0
+
+        # Break down and documentation of of my cube orientation
         # Top NE(0,0) NW(0,63) SW(63, 63) SE(63, 0)
         # North TE(192,63) TW(192,0) BE(255,63) BW(255,0)
         # East ST(128,63) NT(128,0) BS(191,63) BN(191,0)
@@ -94,12 +59,8 @@ class Snake:
         # West TN(256,63) TS(256,0) BN(319,63) BS(319,0)
         # Bottom NW(320,63) NE(383,63) SW(320,0) SE(383,0)
 
-        Pixel = namedtuple("Pixel", "x y")
-        Corner = namedtuple("Corner", "edges pixels")
-        Face = namedtuple("Face", "corners edges")
-
         self.change_direction_map = {
-            'tnr':'e',
+            'tnr': 'e',
             'tnl': 'w',
             'tsr': 'w',
             'tsl': 'e',
@@ -225,8 +186,8 @@ class Snake:
         good_food = False
         food = namedtuple("Food", "x y")
         while not good_food:
-            food.x = random.randint(0,383) # (0, 319) to exclude bottom, (0, 383) to include bottom
-            food.y = random.randint(0,63)
+            food.x = random.randint(0, 383)  # (0, 319) to exclude bottom, (0, 383) to include bottom
+            food.y = random.randint(0, 63)
             good_food = True
             for x, y in zip(self.x, self.y):
                 if food.y == y and food.x == x:
@@ -237,7 +198,7 @@ class Snake:
                     good_food = False
                     continue
         self.food.append(food)
-        self.cube_map.set_map_point(food.x, food.y, color=(0,255,0))
+        self.cube_map.set_map_point(food.x, food.y, color=(0, 255, 0))
         # self.cube_map.set_map_point(self.food_x + 1, self.food_y + 1, color=(0, 255, 0))
         # self.cube_map.set_map_point(self.food_x, self.food_y + 1, color=(0, 255, 0))
         # self.cube_map.set_map_point(self.food_x + 1, self.food_y, color=(0, 255, 0))
@@ -318,50 +279,8 @@ class Snake:
                     self.x.pop(0)
                     self.y.pop(0)
                 self.cube_map.set_map_point(self.x_pos, self.y_pos)
-                # for i in range(self.length):
-                #     self.cube_map.set_map_point(self.x[i], self.y[i])
 
             self.updateCount = 0
-
-
-class LEDCubeMap:
-    def __init__(self,rows, cols, pixel_input_map):
-        self.rows = rows
-        self.cols = cols
-        self.max_x = rows - 1
-        self.max_y = cols - 1
-        self.pixels = pixel_input_map
-        self.pixel_map = {}
-
-    def blank(self):
-        for i in range(self.rows):
-            for j in range(self.cols):
-                self.pixels[i, j] = (0, 0, 0)
-
-    def set_map_point(self, x, y, color=(255, 255, 255)):
-        try:
-            self.pixels[x, y] = color
-        except IndexError:
-            print(f"Error! X: {x} Y: {y}")
-            raise IndexError
-
-    def unset_map_point(self, x, y):
-        self.pixels[x, y] = (0, 0, 0)
-
-    def position(self, x, y):
-
-        if x > self.max_x:
-            x = x % self.rows
-        elif x < 0:
-            x = x % self.rows
-        if y > self.max_y:
-            y = y % self.cols
-        elif y < 0:
-            y = y % self.cols
-        self.blank()
-        self.pixels[x, y] = (255, 255, 255)
-        print(x, y)
-        return x, y
 
 
 def play_snake(matrix, cube_motion):
@@ -398,7 +317,6 @@ class CubeMotion:
         gyro = self.imu.readGyro()
         gx, gy, gz = gyro.values()
         ax, ay, az = accl.values()
-        last_face = self.face_up.value
         if gx < 20 and gy < 20 and gz < 20:
             if az > 0.6:
                 self.face_up.value = b't'
@@ -412,8 +330,7 @@ class CubeMotion:
                 self.face_up.value = b'n'
             elif ax > 0.3 and ay < -0.3:
                 self.face_up.value = b's'
-        # else:
-        #     print("rotating!")
+
         if gz > 15:
             self.rotation = True
             self.rotational_axis = "z+"
@@ -436,11 +353,6 @@ class CubeMotion:
             self.rotating = 0
             self.last_rotational_axis = self.rotational_axis
             self.rotational_distance = 0.0
-
-        # if last_face != self.face_up.value:
-        #     print(f"New Face: {self.face_up.value.decode('utf-8')}")
-        # if self.rotating:
-        #     print(self.rotational_axis)
 
     def track_motion(self):
         while not self.exit:

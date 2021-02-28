@@ -13,6 +13,9 @@ class Controller:
         self.gamepad = InputDevice(devID)
         self.counter = 0
 
+        self.start_pressed = False
+        self.select_pressed = False
+
         self.left_right_code = 16
         self.left_right_values = [-1, 0, 1]
         self.up_down_code = 17
@@ -42,8 +45,10 @@ class Controller:
                 elif event.code == self.up_down_code and event.value == 1:
                     return "down"
                 elif event.code == self.start_code and event.value == 1:
+                    self.start_pressed = True
                     return "start"
                 elif event.code == self.select_code and event.value == 1:
+                    self.select_pressed = True
                     return "select"
                 elif event.code == self.square_code and event.value == 1:
                     return "square"
@@ -61,7 +66,7 @@ class Controller:
                         self.up_set = False
 
         except Exception as err:
-            if self.up_set == True and self.auto_forward:
+            if self.up_set and self.auto_forward:
                 return "up"
             else:
                 return False
@@ -75,3 +80,7 @@ def main():
         if data:
             print(data)
         time.sleep(0.01)
+
+
+if __name__ == "__main__":
+    main()
