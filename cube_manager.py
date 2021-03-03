@@ -23,6 +23,7 @@ DISPLAYPROCNAME = "displays.py"
 DISPLAY_CMDS = ["python3", "/home/pi/devel/ledcube/displays.py"]
 DEMO_STR = "/home/pi/rpi-rgb-led-matrix/examples-api-use/demo --led-rows=64 --led-cols=64 --led-slowdown-gpio=4 --led-chain=6 --led-gpio-mapping=adafruit-hat-pwm -D "
 DEMOPROCNAME = "demo"
+POWEROFF = False
 
 
 # My voltages
@@ -38,7 +39,6 @@ class CubeController(Controller):
 
         self.R1_pressed = False
         self.L1_pressed = False
-        self.lock = threading.Lock()
 
 
     def stop_all(self):
@@ -69,11 +69,10 @@ class CubeController(Controller):
         self.start_display()
 
     def on_L1_press(self):
+        global POWEROFF
         if self.R1_pressed:
-            if not self.lock.locked():
-                self.lock.acquire()
-                flash_message("T")
-                self.lock.release()
+            print("Setting poweroff")
+            POWEROFF = True
         else:
             self.L1_pressed = True
 
@@ -81,11 +80,10 @@ class CubeController(Controller):
         self.L1_pressed = False
 
     def on_R1_press(self):
+        global POWEROFF
         if self.L1_pressed:
-            if not self.lock.locked():
-                self.lock.acquire()
-                flash_message("T")
-                self.lock.release()
+            print("Setting poweroff")
+            POWEROFF = True
         else:
             self.R1_pressed = True
 
@@ -255,33 +253,27 @@ def check_voltage():
         if voltage < 1250:
             UNDER_VOLTAGE = True
 
-# ToDo: Make this work
-def flash_message(message):
-    global DISPLAY_MESSAGE
-    if not DISPLAY_MESSAGE:
-        DISPLAY_MESSAGE = True
-        image = Image.new("RGB", (6 * 64, 64))
-        draw = ImageDraw.Draw(image)
-        matrix = RGBMatrix(options=options)
-        for idx in range(8, 383, 64):
-            draw.multiline_text((idx, 25), message, fill=(255, 0, 0))
-        for _ in range(10):
-            matrix.Clear()
-            time.sleep(0.3)
-            matrix.SetImage(image, 0, 0)
-            time.sleep(0.8)
 
-def shutdown(message):
-    flash_message(message)
-    sys.exit()
+def flash_message(message, offset=8):
+    image = Image.new("RGB", (6 * 64, 64))
+    draw = ImageDraw.Draw(image)
+    matrix = RGBMatrix(options=options)
+    for idx in range(offset, 383, 64):
+        draw.multiline_text((idx, 25), message, fill=(255, 0, 0))
+    for _ in range(10):
+        matrix.Clear()
+        time.sleep(0.3)
+        matrix.SetImage(image, 0, 0)
+        time.sleep(0.8)
 
 
-def shutdown_system(message):
-    flash_message(message)
-    os.system("sudo poweroff")
+def shutdown_system():
+    flash_message("OFF", 25)
+    os.system("/home/pi/power_down.sh")
 
 
 def main():
+    global POWEROFF
     cube_controller = CubeController(interface='/dev/input/js0', connecting_using_ds4drv=False,
                                      event_definition=MyEventDefinition)
     # cube_controller.debug = True
@@ -290,7 +282,7 @@ def main():
 
     # Wait 2 minutes before we make our first check
     print("\nWaiting a couple of minutes before we start checking vitals...")
-    time.sleep(120)
+    # time.sleep(120)
     # Monitor Voltage
     check_volt_thread = threading.Thread(target=check_voltage, args=())
     check_volt_thread.start()
@@ -301,9 +293,14 @@ def main():
 
         if UNDER_VOLTAGE:
             cube_controller.stop_games()
-            shutdown("Low Volt!")
+            flash_message("Low Volt!")
+            shutdown_system()
         # if OVER_TEMP:
         #     print("Over Temp!")
+        if POWEROFF:
+            flash_message("OFF", 25)
+            shutdown_system()
+
 
 
 if __name__ == "__main__":
