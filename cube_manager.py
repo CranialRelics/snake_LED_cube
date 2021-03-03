@@ -19,6 +19,8 @@ OVER_TEMP = False
 
 GAMEPROCNAME = "cube_games"
 GAME_CMDS = ["python3", "/home/pi/devel/ledcube/cube_games.py"]
+DISPLAYPROCNAME = "displays.py"
+DISPLAY_CMDS = ["python3", "/home/pi/devel/ledcube/displays.py"]
 DEMO_STR = "/home/pi/rpi-rgb-led-matrix/examples-api-use/demo --led-rows=64 --led-cols=64 --led-slowdown-gpio=4 --led-chain=6 --led-gpio-mapping=adafruit-hat-pwm -D "
 DEMOPROCNAME = "demo"
 
@@ -39,24 +41,32 @@ class CubeController(Controller):
         self.lock = threading.Lock()
 
 
+    def stop_all(self):
+        self.stop_games()
+        self.stop_demo()
+        self.stop_display()
+
     def on_options_press(self):
         self.start_games()
 
     def on_share_press(self):
-        self.stop_games()
-        self.stop_demo()
+        self.stop_all()
 
     def on_square_press(self):
-        self.stop_demo()
+        self.stop_all()
         self.start_demo("7")
 
     def on_circle_press(self):
-        self.stop_demo()
+        self.stop_all()
         self.start_demo("10")
 
     def on_triangle_press(self):
-        self.stop_demo()
+        self.stop_all()
         self.start_demo("11")
+
+    def on_x_press(self):
+        self.stop_all()
+        self.start_display()
 
     def on_L1_press(self):
         if self.R1_pressed:
@@ -82,7 +92,7 @@ class CubeController(Controller):
     def on_R1_release(self):
         self.R1_pressed = False
 
-
+    # ToDo: Consolidate this code
     @staticmethod
     def games_running():
         global GAMEPROCNAME
@@ -90,6 +100,15 @@ class CubeController(Controller):
             if "python" in proc.name():
                 for component in proc.cmdline():
                     if GAMEPROCNAME in component:
+                        return True
+
+    @staticmethod
+    def display_running():
+        global DISPLAYPROCNAME
+        for proc in psutil.process_iter():
+            if "python" in proc.name():
+                for component in proc.cmdline():
+                    if DISPLAYPROCNAME in component:
                         return True
 
     @staticmethod
@@ -106,6 +125,14 @@ class CubeController(Controller):
             subprocess.Popen(GAME_CMDS)
         time.sleep(1)
         if not self.games_running():
+            raise OSError
+
+    def start_display(self):
+        if not self.display_running():
+            global DISPLAY_CMDS
+            subprocess.Popen(DISPLAY_CMDS)
+        time.sleep(1)
+        if not self.display_running():
             raise OSError
 
     @staticmethod
@@ -125,6 +152,11 @@ class CubeController(Controller):
         global GAMEPROCNAME
         print("Stopping games")
         self.stop_process(GAMEPROCNAME)
+
+    def stop_display(self):
+        global DISPLAYPROCNAME
+        print("Stopping display")
+        self.stop_process(DISPLAYPROCNAME)
 
     def stop_demo(self):
         global DEMOPROCNAME
