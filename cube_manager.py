@@ -40,6 +40,10 @@ class CubeController(Controller):
         self.R1_pressed = False
         self.L1_pressed = False
 
+        self.game_running = False
+        self.display_running = False
+        self.demo_running = False
+        self.proc = None
 
     def stop_all(self):
         self.stop_games()
@@ -66,7 +70,11 @@ class CubeController(Controller):
 
     def on_x_press(self):
         self.stop_all()
-        self.start_display()
+        self.start_display("gol")
+
+    def on_left_arrow_press(self):
+        self.stop_all()
+        self.start_display("rgol")
 
     def on_L1_press(self):
         global POWEROFF
@@ -92,7 +100,7 @@ class CubeController(Controller):
 
     # ToDo: Consolidate this code
     @staticmethod
-    def games_running():
+    def is_games_running():
         global GAMEPROCNAME
         for proc in psutil.process_iter():
             if "python" in proc.name():
@@ -101,7 +109,7 @@ class CubeController(Controller):
                         return True
 
     @staticmethod
-    def display_running():
+    def is_display_running():
         global DISPLAYPROCNAME
         for proc in psutil.process_iter():
             if "python" in proc.name():
@@ -110,7 +118,7 @@ class CubeController(Controller):
                         return True
 
     @staticmethod
-    def demo_running():
+    def is_demo_running():
         global DEMOPROCNAME
         for proc in psutil.process_iter():
                 for component in proc.cmdline():
@@ -118,48 +126,54 @@ class CubeController(Controller):
                         return True
 
     def start_games(self):
-        if not self.games_running():
-            global GAME_CMDS
-            subprocess.Popen(GAME_CMDS)
+        global GAME_CMDS
+        if self.game_running:
+            self.stop_games()
+        self.game_running = True
+        subprocess.Popen(GAME_CMDS)
         time.sleep(1)
-        if not self.games_running():
+        if not self.is_games_running():
             raise OSError
 
-    def start_display(self):
-        if not self.display_running():
-            global DISPLAY_CMDS
-            subprocess.Popen(DISPLAY_CMDS)
+    def start_display(self, display_type):
+        global DISPLAY_CMDS
+        if self.display_running:
+            self.stop_display()
+        display_cmds = []
+        display_cmds.extend(DISPLAY_CMDS)
+        display_cmds.append(display_type)
+        self.proc = subprocess.Popen(display_cmds)
         time.sleep(1)
-        if not self.display_running():
+        if not self.is_display_running():
             raise OSError
 
-    @staticmethod
-    def start_demo(demo_numb):
+    def start_demo(self, demo_numb):
         global DEMO_STR
+        self.demo_running = True
         subprocess.Popen(DEMO_STR + demo_numb, shell=True)
 
     @staticmethod
     def stop_process(name):
-        for proc in psutil.process_iter():
-            for component in proc.cmdline():
-                if name in component:
-                    proc.kill()
-                    return
+        os.system(f"sudo killall -9 {name}")
 
     def stop_games(self):
         global GAMEPROCNAME
         print("Stopping games")
         self.stop_process(GAMEPROCNAME)
+        self.game_running = True
 
     def stop_display(self):
         global DISPLAYPROCNAME
-        print("Stopping display")
-        self.stop_process(DISPLAYPROCNAME)
+        if self.proc:
+            print("Stopping display")
+            os.system(f"sudo kill -9 {self.proc.pid}")
+            self.proc = None
+            self.display_running = False
 
     def stop_demo(self):
         global DEMOPROCNAME
         self.stop_process(DEMOPROCNAME)
-        self.stop_process(DEMOPROCNAME)
+        self.demo_running = False
 
 
 class MyEventDefinition(DefaultMapping):
@@ -300,6 +314,7 @@ def main():
         if POWEROFF:
             flash_message("OFF", 25)
             shutdown_system()
+        time.sleep(0.25)
 
 
 

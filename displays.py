@@ -1,5 +1,6 @@
-import time
+import sys
 import random
+import argparse
 
 from utils import LEDCubeMap
 
@@ -58,7 +59,8 @@ def get_plus_minus_one(n, idx=0):
         n3 = (n[0], n[1] - 1)
     return [n2, n3]
 
-class GameOfLife:
+
+class Life:
     def __init__(self, cube_map):
         self.cube_map = cube_map
         # Red, Green, Blue
@@ -102,7 +104,7 @@ class GameOfLife:
             '''
             # Location
             # Top North
-            k = (0, i) # k: This is the key aka, the location where neighbors are calculated from
+            k = (0, i)  # k: This is the key aka, the location where neighbors are calculated from
             n = (192, 63 - i)  # n: This is a neighbor
             neighbors = add_neighbor(self.neighbor_map, k, n)
             if i != 0 and i != 63:
@@ -288,7 +290,6 @@ class GameOfLife:
                 if not self.neighbor_map.get((x,y), False):
                     self.neighbor_map[(x, y)] = def_neighbors([], x, y, lower_bound_x=0, upper_bound_x=383)
 
-
     def count_neighbors(self, coord):
         neighbor_count = 0
         neighbors = self.neighbor_map[coord]
@@ -296,6 +297,16 @@ class GameOfLife:
             neighbor_count += self.old_state[neighbor[1]][neighbor[0]]
         return neighbor_count
 
+    def life_state(self, current_state, neighbor_count):
+        if current_state:
+            if neighbor_count == 2 or neighbor_count == 3:
+                current_state = 1
+            else:
+                current_state = 0
+        else:
+            if neighbor_count == 3:
+                current_state = 1
+        return current_state, self.color
 
     def update(self):
         # Determine next state
@@ -307,37 +318,51 @@ class GameOfLife:
             for x in range(self.x_range):
                 current_state = self.old_state[y][x]
                 n_count = self.count_neighbors((x, y))
-                if current_state:
-                    if n_count == 2 or n_count == 3:
-                        current_state = 1
-                    else:
-                        current_state = 0
-                else:
-                    if n_count == 3:
-                        current_state = 1
+                current_state, color = self.life_state(current_state, n_count)
+
                 row_state.append(current_state)
                 if current_state:
-                    self.cube_map.set_map_point(x, y, self.color)
+                    self.cube_map.set_map_point(x, y, color)
             self.game_state.append(row_state)
 
 
-def play_GOL(matrix):
+class RandLife(Life):
+    def life_state(self, current_state, neighbor_count):
+        if current_state:
+            if neighbor_count == 2 or neighbor_count == 3:
+                current_state = 1
+            else:
+                current_state = 0
+        else:
+            if neighbor_count == 3:
+                current_state = 1
+        if not current_state and random.random() < 0.001:
+            current_state = 1
+        return current_state, self.color
+
+
+def parse_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('game', type=str, default='gol')
+    return parser.parse_args()
+
+
+def main():
+    sim = None
+    args = parse_args()
+    matrix = RGBMatrix(options=options)
     image = Image.new("RGB", (6 * 64, 64))
     pixels = image.load()
     cube_map = LEDCubeMap(rows=image.size[0], cols=image.size[1], pixel_input_map=pixels)
-    GOL = GameOfLife(cube_map)
+    if args.game == 'gol':
+        sim = Life(cube_map)
+    elif args.game == 'rgol':
+        sim = RandLife(cube_map)
 
     while True:
         matrix.Clear()
         matrix.SetImage(image)
-        GOL.update()
-
-
-
-def main():
-    matrix = RGBMatrix(options=options)
-    play_GOL(matrix)
-
+        sim.update()
 
 if __name__ == "__main__":
     main()
